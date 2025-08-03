@@ -2,8 +2,6 @@ import pandas as pd
 import streamlit as st
 import requests
 from pathlib import Path
-
-
 import streamlit.components.v1 as components
 
 try:
@@ -41,8 +39,7 @@ def download_sheet_as_xlsx(sheet_id: str, target_path: Path):
         raise RuntimeError(f"Download error for sheet {sheet_id}")
     target_path.write_bytes(resp.content)
 
-@st.cache_data(ttl=300)
-def load_data():
+def load_data_uncached():
     download_sheet_as_xlsx(ENML_SHEET_ID, ENML_CACHE)
     download_sheet_as_xlsx(MLML_SHEET_ID, MLML_CACHE)
 
@@ -100,8 +97,8 @@ def render_contact():
         if st.button("📸 Instagram"):
             components.html("""<script>window.open("https://instagram.com/ig.yadu/", "_blank");</script>""", height=0)
     st.markdown(
-        "- 📧 [Email](mailto:yaduk883@gmail.com)\n"
-        "- 🐙 [GitHub](https://github.com/yaduk883)\n"
+        "- 📧 [Email](mailto:yaduk883@gmail.com)"
+        "- 🐙 [GitHub](https://github.com/yaduk883)"
         "- 📸 [Instagram](https://instagram.com/ig.yadu/)"
     )
 
@@ -109,8 +106,11 @@ def main():
     st.set_page_config(page_title="📖 മലയാളം നിഘണ്ടു", layout="wide")
     st.title("📖 മലയാളം നിഘണ്ടു – Malayalam Bilingual Dictionary")
 
+    # load with manual caching to avoid the "Running load_data()" label
     with st.spinner("Loading dictionary... “Words are, in my not-so-humble opinion, our most inexhaustible source of magic.” – Albus Dumbledore"):
-        enml_df, mlml_df = load_data()
+        if "cached_data" not in st.session_state:
+            st.session_state.cached_data = load_data_uncached()
+        enml_df, mlml_df = st.session_state.cached_data
 
     if "enml_pairs" not in st.session_state:
         st.session_state.enml_pairs = list(zip(enml_df["from_content"].str.lower(), enml_df["to_content"]))
@@ -225,15 +225,10 @@ def main():
         else:
             st.write("Type to search or click a suggestion.")
 
-    st.markdown("---")
-    st.caption(
-        "Dictionary data is loaded and cached locally. "
-        "New additions are saved to the local cache only."
-    )
-
-
+    # Contact panel
     with st.expander("Contact Me"):
         render_contact()
+
 
 if __name__ == "__main__":
     main()

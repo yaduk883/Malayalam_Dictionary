@@ -212,7 +212,7 @@ __marimo__/
 *.xls
 *.csv
 
-# Optional: if you ever save local exports or backups
+#  ever save local exports or backups
 *.bak
 *.tmp
 

@@ -227,7 +227,7 @@ def main():
 
     st.markdown("---")
     st.caption(
-        "Dictionary data is loaded from the provided Google Sheets (exported as Excel) and cached locally. "
+        "Dictionary data is loaded and cached locally. "
         "New additions are saved to the local cache only."
     )
 

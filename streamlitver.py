@@ -3,15 +3,13 @@ import streamlit as st
 import requests
 from pathlib import Path
 
-# ---------- guard for openpyxl dependency ----------
 try:
-    import openpyxl  # required by pandas.read_excel for .xlsx
+    import openpyxl  
 except ImportError:
     st.error("Missing dependency `openpyxl`. Please add it to requirements.txt and install (`pip install openpyxl`).")
     st.stop()
 
-# ------------------ CONFIGURE SHEET IDS ------------------
-# Primary: read from Streamlit secrets if available, else fallback to hardcoded public sheet IDs
+
 try:
     ENML_SHEET_ID = st.secrets["ENML_SHEET_ID"]
 except Exception:
@@ -22,9 +20,8 @@ try:
 except Exception:
     MLML_SHEET_ID = "1UW8H2Kma8TNoREZ5ohnC1lV87laotTGW"
 
-# -------------------------------------------------------
 
-# Local cache paths
+
 CACHE_DIR = Path(".cache_data")
 CACHE_DIR.mkdir(exist_ok=True)
 ENML_CACHE = CACHE_DIR / "en_ml.xlsx"
@@ -56,13 +53,12 @@ def load_data():
     enml = pd.read_excel(ENML_CACHE)
     mlml = pd.read_excel(MLML_CACHE)
 
-    # Validate required columns
     for df, name in [(enml, "English-Malayalam"), (mlml, "Malayalam-Malayalam")]:
         if "from_content" not in df.columns or "to_content" not in df.columns:
             st.error(f"Sheet '{name}' must have columns 'from_content' and 'to_content'.")
             raise ValueError(f"Missing required columns in {name} sheet")
 
-    # Safe slicing / cleaning to avoid SettingWithCopyWarning
+    
     enml = enml.loc[:, ["from_content", "to_content"]].dropna().copy()
     mlml = mlml.loc[:, ["from_content", "to_content"]].dropna().copy()
 
@@ -101,11 +97,10 @@ def main():
     st.set_page_config(page_title="📖 മലയാളം നിഘണ്ടു", layout="wide")
     st.title("📖 മലയാളം നിഘണ്ടു – Malayalam Bilingual Dictionary")
 
-    # Custom spinner with quote while loading
+    
     with st.spinner("Loading dictionary... “Words are, in my not-so-humble opinion, our most inexhaustible source of magic.” – Albus Dumbledore"):
         enml_df, mlml_df = load_data()
 
-    # Initialize session state pair lists
     if "enml_pairs" not in st.session_state:
         st.session_state.enml_pairs = list(
             zip(enml_df["from_content"].str.lower(), enml_df["to_content"])
@@ -117,7 +112,6 @@ def main():
     if "search_input_override" not in st.session_state:
         st.session_state.search_input_override = ""
 
-    # Direction selector
     direction = st.radio(
         "Select Direction",
         ("English → മലയാളം", "മലയാളം → English", "മലയാളം → മലയാളം"),
@@ -125,7 +119,6 @@ def main():
         horizontal=True
     )
 
-    # Search input (prefilled if suggestion was clicked)
     search_term = st.text_input(
         "തിരയുക 🔍",
         value=st.session_state.search_input_override,
@@ -151,7 +144,6 @@ def main():
                 matches = [(src, tgt) for src, tgt in st.session_state.mlml_pairs if src.startswith(word_lower)]
                 exacts = [(src, tgt) for src, tgt in st.session_state.mlml_pairs if src == word_lower]
 
-            # Collect unique suggestions up to 20
             seen = set()
             for src, tgt in matches:
                 if src not in seen:

@@ -3,8 +3,8 @@ import streamlit as st
 import requests
 from pathlib import Path
 
-ENML_SHEET_ID = "1vujnZVEBTGzsRctZ5rhevnsqdEPMlfdS"  # English ↔ Malayalam
-MLML_SHEET_ID = "1UW8H2Kma8TNoREZ5ohnC1lV87laotTGW"  # Malayalam ↔ Malayalam
+ENML_SHEET_ID = st.secrets["ENML_SHEET_ID"]
+MLML_SHEET_ID = st.secrets["MLML_SHEET_ID"]
 
 
 CACHE_DIR = Path(".cache_data")

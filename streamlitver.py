@@ -3,12 +3,14 @@ import streamlit as st
 import requests
 from pathlib import Path
 
+
+import streamlit.components.v1 as components
+
 try:
     import openpyxl  
 except ImportError:
     st.error("Missing dependency `openpyxl`. Please add it to requirements.txt and install (`pip install openpyxl`).")
     st.stop()
-
 
 try:
     ENML_SHEET_ID = st.secrets["ENML_SHEET_ID"]
@@ -20,17 +22,12 @@ try:
 except Exception:
     MLML_SHEET_ID = "1UW8H2Kma8TNoREZ5ohnC1lV87laotTGW"
 
-
-
 CACHE_DIR = Path(".cache_data")
 CACHE_DIR.mkdir(exist_ok=True)
 ENML_CACHE = CACHE_DIR / "en_ml.xlsx"
 MLML_CACHE = CACHE_DIR / "datukexcel.xlsx"
 
 def download_sheet_as_xlsx(sheet_id: str, target_path: Path):
-    """
-    Export a public Google Sheet as XLSX and save locally if not already present.
-    """
     if target_path.exists():
         return
     export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
@@ -46,7 +43,6 @@ def download_sheet_as_xlsx(sheet_id: str, target_path: Path):
 
 @st.cache_data(ttl=300)
 def load_data():
-    # Ensure local cached copies exist
     download_sheet_as_xlsx(ENML_SHEET_ID, ENML_CACHE)
     download_sheet_as_xlsx(MLML_SHEET_ID, MLML_CACHE)
 
@@ -58,7 +54,6 @@ def load_data():
             st.error(f"Sheet '{name}' must have columns 'from_content' and 'to_content'.")
             raise ValueError(f"Missing required columns in {name} sheet")
 
-    
     enml = enml.loc[:, ["from_content", "to_content"]].dropna().copy()
     mlml = mlml.loc[:, ["from_content", "to_content"]].dropna().copy()
 
@@ -82,8 +77,7 @@ def save_mlml(df: pd.DataFrame):
         st.error(f"Could not save Malayalam-Malayalam dictionary locally: {e}")
 
 def copy_js(text: str):
-    """Copy text to clipboard using embedded JS."""
-    st.components.v1.html(
+    components.html(
         f"""
         <script>
         navigator.clipboard.writeText({text!r});
@@ -93,22 +87,35 @@ def copy_js(text: str):
         key=f"copy-{text}"
     )
 
+def render_contact():
+    st.markdown("### 📬 Let's Connect")
+    cols = st.columns(3)
+    with cols[0]:
+        if st.button("📧 Email"):
+            components.html("""<script>window.location.href='mailto:yaduk883@gmail.com';</script>""", height=0)
+    with cols[1]:
+        if st.button("🐙 GitHub"):
+            components.html("""<script>window.open("https://github.com/yaduk883", "_blank");</script>""", height=0)
+    with cols[2]:
+        if st.button("📸 Instagram"):
+            components.html("""<script>window.open("https://instagram.com/ig.yadu/", "_blank");</script>""", height=0)
+    st.markdown(
+        "- 📧 [Email](mailto:yaduk883@gmail.com)\n"
+        "- 🐙 [GitHub](https://github.com/yaduk883)\n"
+        "- 📸 [Instagram](https://instagram.com/ig.yadu/)"
+    )
+
 def main():
     st.set_page_config(page_title="📖 മലയാളം നിഘണ്ടു", layout="wide")
     st.title("📖 മലയാളം നിഘണ്ടു – Malayalam Bilingual Dictionary")
 
-    
     with st.spinner("Loading dictionary... “Words are, in my not-so-humble opinion, our most inexhaustible source of magic.” – Albus Dumbledore"):
         enml_df, mlml_df = load_data()
 
     if "enml_pairs" not in st.session_state:
-        st.session_state.enml_pairs = list(
-            zip(enml_df["from_content"].str.lower(), enml_df["to_content"])
-        )
+        st.session_state.enml_pairs = list(zip(enml_df["from_content"].str.lower(), enml_df["to_content"]))
     if "mlml_pairs" not in st.session_state:
-        st.session_state.mlml_pairs = list(
-            zip(mlml_df["from_content"].str.lower(), mlml_df["to_content"])
-        )
+        st.session_state.mlml_pairs = list(zip(mlml_df["from_content"].str.lower(), mlml_df["to_content"]))
     if "search_input_override" not in st.session_state:
         st.session_state.search_input_override = ""
 
@@ -136,13 +143,10 @@ def main():
         if word_lower:
             if direction == "English → മലയാളം":
                 matches = [(src, tgt) for src, tgt in st.session_state.enml_pairs if src.startswith(word_lower)]
-                exacts = [(src, tgt) for src, tgt in st.session_state.enml_pairs if src == word_lower]
             elif direction == "മലയാളം → English":
                 matches = [(tgt.lower(), src) for src, tgt in st.session_state.enml_pairs if tgt.lower().startswith(word_lower)]
-                exacts = [(tgt.lower(), src) for src, tgt in st.session_state.enml_pairs if tgt.lower() == word_lower]
             else:
                 matches = [(src, tgt) for src, tgt in st.session_state.mlml_pairs if src.startswith(word_lower)]
-                exacts = [(src, tgt) for src, tgt in st.session_state.mlml_pairs if src == word_lower]
 
             seen = set()
             for src, tgt in matches:
@@ -226,6 +230,10 @@ def main():
         "Dictionary data is loaded from the provided Google Sheets (exported as Excel) and cached locally. "
         "New additions are saved to the local cache only."
     )
+
+
+    with st.expander("Contact Me"):
+        render_contact()
 
 if __name__ == "__main__":
     main()

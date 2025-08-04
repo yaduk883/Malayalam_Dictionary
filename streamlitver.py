@@ -5,16 +5,15 @@ from pathlib import Path
 import streamlit.components.v1 as components
 import html
 
-# ---------- copy helper (pyperclip fallback to JS) ----------
 def copy_text_to_clipboard(text: str):
-    # Try pyperclip first (works locally)
+   
     try:
         import pyperclip
 
         pyperclip.copy(text)
         return True
     except Exception:
-        # Fallback to JS
+        
         try:
             safe_text = html.escape(text)
             js = f"""
@@ -27,14 +26,12 @@ def copy_text_to_clipboard(text: str):
         except Exception:
             return False
 
-# ---------- dependency guard ----------
 try:
-    import openpyxl  # needed for Excel reading
+    import openpyxl  
 except ImportError:
     st.error("Missing dependency `openpyxl`. Add it to requirements.txt and install (`pip install openpyxl`).")
     st.stop()
 
-# ------------------ CONFIGURE SHEET IDS ------------------
 try:
     ENML_SHEET_ID = st.secrets["ENML_SHEET_ID"]
 except Exception:
@@ -44,9 +41,9 @@ try:
     MLML_SHEET_ID = st.secrets["MLML_SHEET_ID"]
 except Exception:
     MLML_SHEET_ID = "1UW8H2Kma8TNoREZ5ohnC1lV87laotTGW"
-# -------------------------------------------------------
 
-# Local cache
+
+#  cache
 CACHE_DIR = Path(".cache_data")
 CACHE_DIR.mkdir(exist_ok=True)
 ENML_CACHE = CACHE_DIR / "en_ml.xlsx"
@@ -101,7 +98,7 @@ def save_mlml(df: pd.DataFrame):
         st.error(f"Could not save Malayalam-Malayalam dictionary locally: {e}")
 
 def build_prefix_maps():
-    # English→Malayalam: prefix map on source (english)
+   
     if "prefix_map_enml" not in st.session_state:
         pm = {}
         for src, tgt in st.session_state.enml_pairs:
@@ -109,7 +106,7 @@ def build_prefix_maps():
                 key = src[:i]
                 pm.setdefault(key, []).append((src, tgt))
         st.session_state.prefix_map_enml = pm
-    # Malayalam→English: prefix map on target of enml
+    
     if "prefix_map_ml_en" not in st.session_state:
         pm = {}
         for src, tgt in st.session_state.enml_pairs:
@@ -118,7 +115,7 @@ def build_prefix_maps():
                 key = tgt_l[:i]
                 pm.setdefault(key, []).append((tgt_l, src))
         st.session_state.prefix_map_ml_en = pm
-    # Malayalam→Malayalam: prefix map on source of mlml
+    
     if "prefix_map_mlml" not in st.session_state:
         pm = {}
         for src, tgt in st.session_state.mlml_pairs:
@@ -139,11 +136,11 @@ def get_suggestions(word_lower: str, direction: str, limit=20):
         pm = st.session_state.prefix_map_ml_en
         matches = pm.get(word_lower, [])
         suggestions = [src for src, _ in matches]
-    else:  # മലയാളം → മലയാളം
+    else:  
         pm = st.session_state.prefix_map_mlml
         matches = pm.get(word_lower, [])
         suggestions = [src for src, _ in matches]
-    # dedupe preserving order
+    
     seen = set()
     out = []
     for s in suggestions:
@@ -181,7 +178,7 @@ def main():
             st.session_state.cached_data = load_data_uncached()
         enml_df, mlml_df = st.session_state.cached_data
 
-    # Prepare pairs
+
     if "enml_pairs" not in st.session_state:
         st.session_state.enml_pairs = list(zip(enml_df["from_content"].str.lower(), enml_df["to_content"]))
     if "mlml_pairs" not in st.session_state:
@@ -189,7 +186,7 @@ def main():
     if "search_input" not in st.session_state:
         st.session_state.search_input = ""
 
-    # Build prefix maps once
+   
     build_prefix_maps()
 
     direction = st.radio(
@@ -199,7 +196,7 @@ def main():
         horizontal=True
     )
 
-    # Live search input
+    
     search_term = st.text_input(
         "തിരയുക 🔍",
         value=st.session_state.get("search_input", ""),

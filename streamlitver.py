@@ -3,13 +3,16 @@ import streamlit as st
 import requests
 from pathlib import Path
 import streamlit.components.v1 as components
+import html  # for escaping
 
+# ---------- guard for openpyxl dependency ----------
 try:
-    import openpyxl  
+    import openpyxl  # required by pandas.read_excel for .xlsx
 except ImportError:
     st.error("Missing dependency `openpyxl`. Please add it to requirements.txt and install (`pip install openpyxl`).")
     st.stop()
 
+# ------------------ CONFIGURE SHEET IDS ------------------
 try:
     ENML_SHEET_ID = st.secrets["ENML_SHEET_ID"]
 except Exception:
@@ -19,7 +22,9 @@ try:
     MLML_SHEET_ID = st.secrets["MLML_SHEET_ID"]
 except Exception:
     MLML_SHEET_ID = "1UW8H2Kma8TNoREZ5ohnC1lV87laotTGW"
+# -------------------------------------------------------
 
+# Local cache
 CACHE_DIR = Path(".cache_data")
 CACHE_DIR.mkdir(exist_ok=True)
 ENML_CACHE = CACHE_DIR / "en_ml.xlsx"
@@ -73,16 +78,26 @@ def save_mlml(df: pd.DataFrame):
     except Exception as e:
         st.error(f"Could not save Malayalam-Malayalam dictionary locally: {e}")
 
-def copy_js(text: str):
-    components.html(
-        f"""
-        <script>
-        navigator.clipboard.writeText({text!r});
-        </script>
-        """,
-        height=0,
-        key=f"copy-{text}"
-    )
+def copy_to_clipboard(text: str):
+    """JS-based copy with fallback; returns True if attempted."""
+    safe_text = html.escape(text)
+    js = f"""
+    <script>
+    async function copyText() {{
+        try {{
+            await navigator.clipboard.writeText({text!r});
+        }} catch (e) {{
+            console.log("Clipboard failed:", e);
+        }}
+    }}
+    copyText();
+    </script>
+    """
+    try:
+        components.html(js, height=0)
+        return True
+    except Exception:
+        return False
 
 def render_contact():
     st.markdown("### 📬 Let's Connect")
@@ -97,8 +112,8 @@ def render_contact():
         if st.button("📸 Instagram"):
             components.html("""<script>window.open("https://instagram.com/ig.yadu/", "_blank");</script>""", height=0)
     st.markdown(
-        "- 📧 [Email](mailto:yaduk883@gmail.com)"
-        "- 🐙 [GitHub](https://github.com/yaduk883)"
+        "- 📧 [Email](mailto:yaduk883@gmail.com)\n"
+        "- 🐙 [GitHub](https://github.com/yaduk883)\n"
         "- 📸 [Instagram](https://instagram.com/ig.yadu/)"
     )
 
@@ -106,12 +121,13 @@ def main():
     st.set_page_config(page_title="📖 മലയാളം നിഘണ്ടു", layout="wide")
     st.title("📖 മലയാളം നിഘണ്ടു – Malayalam Bilingual Dictionary")
 
-    # load with manual caching to avoid the "Running load_data()" label
+    # load with manual caching to avoid internal “Running load_data()” label
     with st.spinner("Loading dictionary... “Words are, in my not-so-humble opinion, our most inexhaustible source of magic.” – Albus Dumbledore"):
         if "cached_data" not in st.session_state:
             st.session_state.cached_data = load_data_uncached()
         enml_df, mlml_df = st.session_state.cached_data
 
+    # prepare pairs
     if "enml_pairs" not in st.session_state:
         st.session_state.enml_pairs = list(zip(enml_df["from_content"].str.lower(), enml_df["to_content"]))
     if "mlml_pairs" not in st.session_state:
@@ -126,6 +142,7 @@ def main():
         horizontal=True
     )
 
+    # Live search happens naturally as text_input changes
     search_term = st.text_input(
         "തിരയുക 🔍",
         value=st.session_state.search_input_override,
@@ -136,7 +153,6 @@ def main():
 
     col1, col2 = st.columns([1, 2])
 
-    selected = "-- none --"
     with col1:
         st.subheader("Suggestions")
         suggestions = []
@@ -160,13 +176,12 @@ def main():
             st.write("Click a suggestion to search:")
             for sug in suggestions:
                 if st.button(sug, key=f"sugg-{sug}"):
-                    selected = sug
-                    word_lower = sug.lower()
                     st.session_state.search_input_override = sug
+                    word_lower = sug.lower()
 
         st.markdown("---")
-        st.subheader("Add / Extend Dictionary")
-        with st.form("add_word_form", clear_on_submit=True):
+        # Hidden add/extend dictionary
+        with st.expander("Add / Extend Dictionary"):
             if direction == "English → മലയാളം":
                 from_label = "English word"
                 to_label = "Malayalam word"
@@ -177,23 +192,24 @@ def main():
                 from_label = "Malayalam word"
                 to_label = "Malayalam synonym/translation"
 
-            new_from = st.text_input(from_label, key="new_from")
-            new_to = st.text_input(to_label, key="new_to")
-            submitted = st.form_submit_button("Add Word")
-            if submitted:
-                if not new_from.strip() or not new_to.strip():
-                    st.warning("Both fields are required.")
-                else:
-                    if direction in ("English → മലയാളം", "മലയാളം → English"):
-                        st.session_state.enml_pairs.append((new_from.strip().lower(), new_to.strip()))
-                        enml_df.loc[len(enml_df)] = [new_from.strip(), new_to.strip()]
-                        save_enml(enml_df)
-                        st.success(f"Added: {new_from} → {new_to}")
+            with st.form("add_word_form", clear_on_submit=True):
+                new_from = st.text_input(from_label, key="new_from")
+                new_to = st.text_input(to_label, key="new_to")
+                submitted = st.form_submit_button("Add Word")
+                if submitted:
+                    if not new_from.strip() or not new_to.strip():
+                        st.warning("Both fields are required.")
                     else:
-                        st.session_state.mlml_pairs.append((new_from.strip().lower(), new_to.strip()))
-                        mlml_df.loc[len(mlml_df)] = [new_from.strip(), new_to.strip()]
-                        save_mlml(mlml_df)
-                        st.success(f"Added: {new_from} → {new_to}")
+                        if direction in ("English → മലയാളം", "മലയാളം → English"):
+                            st.session_state.enml_pairs.append((new_from.strip().lower(), new_to.strip()))
+                            enml_df.loc[len(enml_df)] = [new_from.strip(), new_to.strip()]
+                            save_enml(enml_df)
+                            st.success(f"Added: {new_from} → {new_to}")
+                        else:
+                            st.session_state.mlml_pairs.append((new_from.strip().lower(), new_to.strip()))
+                            mlml_df.loc[len(mlml_df)] = [new_from.strip(), new_to.strip()]
+                            save_mlml(mlml_df)
+                            st.success(f"Added: {new_from} → {new_to}")
 
     with col2:
         st.subheader("Result")
@@ -212,13 +228,16 @@ def main():
                 shown = set()
                 for _, tgt in results:
                     if tgt not in shown:
-                        col_a, col_b = st.columns([8, 1])
-                        with col_a:
+                        row_col, copy_col = st.columns([8, 1])
+                        with row_col:
                             st.write(f"→ {tgt}")
-                        with col_b:
+                        with copy_col:
                             if st.button("Copy", key=f"copy-{tgt}"):
-                                copy_js(tgt)
-                                st.success("Copied to clipboard")
+                                success = copy_to_clipboard(tgt)
+                                if success:
+                                    st.success("Copied!")
+                                else:
+                                    st.warning("Copy failed; please select and copy manually.")
                         shown.add(tgt)
             else:
                 st.info("No exact match found.")
@@ -228,7 +247,6 @@ def main():
     # Contact panel
     with st.expander("Contact Me"):
         render_contact()
-
 
 if __name__ == "__main__":
     main()

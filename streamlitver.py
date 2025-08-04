@@ -5,17 +5,15 @@ from pathlib import Path
 import streamlit.components.v1 as components
 import html
 
+# ---------- copy helper (pyperclip fallback to JS) ----------
 def copy_text_to_clipboard(text: str):
-   
     try:
         import pyperclip
-
         pyperclip.copy(text)
         return True
     except Exception:
-        
+        # Fallback to JS
         try:
-            safe_text = html.escape(text)
             js = f"""
             <script>
             navigator.clipboard.writeText({text!r}).catch(e => console.log('clipboard fallback error', e));
@@ -26,12 +24,14 @@ def copy_text_to_clipboard(text: str):
         except Exception:
             return False
 
+# ---------- guard for openpyxl dependency ----------
 try:
-    import openpyxl  
+    import openpyxl  # needed for Excel reading
 except ImportError:
     st.error("Missing dependency `openpyxl`. Add it to requirements.txt and install (`pip install openpyxl`).")
     st.stop()
 
+# ------------------ CONFIGURE SHEET IDS ------------------
 try:
     ENML_SHEET_ID = st.secrets["ENML_SHEET_ID"]
 except Exception:
@@ -41,9 +41,9 @@ try:
     MLML_SHEET_ID = st.secrets["MLML_SHEET_ID"]
 except Exception:
     MLML_SHEET_ID = "1UW8H2Kma8TNoREZ5ohnC1lV87laotTGW"
+# -------------------------------------------------------
 
-
-#  cache
+# Local cache
 CACHE_DIR = Path(".cache_data")
 CACHE_DIR.mkdir(exist_ok=True)
 ENML_CACHE = CACHE_DIR / "en_ml.xlsx"
@@ -97,60 +97,6 @@ def save_mlml(df: pd.DataFrame):
     except Exception as e:
         st.error(f"Could not save Malayalam-Malayalam dictionary locally: {e}")
 
-def build_prefix_maps():
-   
-    if "prefix_map_enml" not in st.session_state:
-        pm = {}
-        for src, tgt in st.session_state.enml_pairs:
-            for i in range(1, len(src) + 1):
-                key = src[:i]
-                pm.setdefault(key, []).append((src, tgt))
-        st.session_state.prefix_map_enml = pm
-    
-    if "prefix_map_ml_en" not in st.session_state:
-        pm = {}
-        for src, tgt in st.session_state.enml_pairs:
-            tgt_l = tgt.lower()
-            for i in range(1, len(tgt_l) + 1):
-                key = tgt_l[:i]
-                pm.setdefault(key, []).append((tgt_l, src))
-        st.session_state.prefix_map_ml_en = pm
-    
-    if "prefix_map_mlml" not in st.session_state:
-        pm = {}
-        for src, tgt in st.session_state.mlml_pairs:
-            for i in range(1, len(src) + 1):
-                key = src[:i]
-                pm.setdefault(key, []).append((src, tgt))
-        st.session_state.prefix_map_mlml = pm
-
-def get_suggestions(word_lower: str, direction: str, limit=20):
-    suggestions = []
-    if not word_lower:
-        return []
-    if direction == "English → മലയാളം":
-        pm = st.session_state.prefix_map_enml
-        matches = pm.get(word_lower, [])
-        suggestions = [src for src, _ in matches]
-    elif direction == "മലയാളം → English":
-        pm = st.session_state.prefix_map_ml_en
-        matches = pm.get(word_lower, [])
-        suggestions = [src for src, _ in matches]
-    else:  
-        pm = st.session_state.prefix_map_mlml
-        matches = pm.get(word_lower, [])
-        suggestions = [src for src, _ in matches]
-    
-    seen = set()
-    out = []
-    for s in suggestions:
-        if s not in seen:
-            out.append(s)
-            seen.add(s)
-        if len(out) >= limit:
-            break
-    return out
-
 def render_contact():
     st.markdown("### 📬 Let's Connect")
     cols = st.columns(3)
@@ -163,11 +109,6 @@ def render_contact():
     with cols[2]:
         if st.button("📸 Instagram"):
             components.html("""<script>window.open("https://instagram.com/ig.yadu/", "_blank");</script>""", height=0)
-    st.markdown(
-        "- 📧 [Email](mailto:yaduk883@gmail.com)\n"
-        "- 🐙 [GitHub](https://github.com/yaduk883)\n"
-        "- 📸 [Instagram](https://instagram.com/ig.yadu/)"
-    )
 
 def main():
     st.set_page_config(page_title="📖 മലയാളം നിഘണ്ടു", layout="wide")
@@ -178,16 +119,12 @@ def main():
             st.session_state.cached_data = load_data_uncached()
         enml_df, mlml_df = st.session_state.cached_data
 
-
     if "enml_pairs" not in st.session_state:
         st.session_state.enml_pairs = list(zip(enml_df["from_content"].str.lower(), enml_df["to_content"]))
     if "mlml_pairs" not in st.session_state:
         st.session_state.mlml_pairs = list(zip(mlml_df["from_content"].str.lower(), mlml_df["to_content"]))
     if "search_input" not in st.session_state:
         st.session_state.search_input = ""
-
-   
-    build_prefix_maps()
 
     direction = st.radio(
         "Select Direction",
@@ -196,7 +133,7 @@ def main():
         horizontal=True
     )
 
-    
+    # Live search input
     search_term = st.text_input(
         "തിരയുക 🔍",
         value=st.session_state.get("search_input", ""),
@@ -209,13 +146,30 @@ def main():
 
     with col1:
         st.subheader("Suggestions")
-        suggestions = get_suggestions(word_lower, direction)
+        suggestions = []
+        if word_lower:
+            if direction == "English → മലയാളം":
+                matches = [(src, tgt) for src, tgt in st.session_state.enml_pairs if src.startswith(word_lower)]
+            elif direction == "മലയാളം → English":
+                matches = [(tgt.lower(), src) for src, tgt in st.session_state.enml_pairs if tgt.lower().startswith(word_lower)]
+            else:
+                matches = [(src, tgt) for src, tgt in st.session_state.mlml_pairs if src.startswith(word_lower)]
+
+            seen = set()
+            for src, tgt in matches:
+                if src not in seen:
+                    suggestions.append(src)
+                    seen.add(src)
+                if len(suggestions) >= 20:
+                    break
+
         if suggestions:
-            st.write("Click a suggestion to fill and search:")
+            st.write("Click a suggestion to search:")
             for sug in suggestions:
-                if st.button(sug, key=f"sugg-{direction}-{sug}"):
+                if st.button(sug, key=f"sugg-{sug}"):
                     st.session_state.search_input = sug
                     st.experimental_rerun()
+
         st.markdown("---")
         with st.expander("Add / Extend Dictionary"):
             if direction == "English → മലയാളം":
@@ -274,16 +228,16 @@ def main():
                                 if ok:
                                     st.success("Copied!")
                                 else:
-                                    st.warning("Copy failed; select manually.")
+                                    st.warning("Copy failed; please select and copy manually.")
                         shown.add(tgt)
             else:
                 st.info("No exact match found.")
         else:
             st.write("Type to search or click a suggestion.")
 
+    # Contact panel
     with st.expander("Contact Me"):
         render_contact()
-
 
 if __name__ == "__main__":
     main()

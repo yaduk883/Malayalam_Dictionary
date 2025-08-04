@@ -3,9 +3,9 @@ import streamlit as st
 import requests
 from pathlib import Path
 
-# ---------- guard for openpyxl dependency ----------
+
 try:
-    import openpyxl  # required for pandas.read_excel for .xlsx
+    import openpyxl  
 except ImportError:
     st.error("Missing dependency openpyxl. Please add it to requirements.txt and install (`pip install openpyxl`).")
     st.stop()

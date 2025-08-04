@@ -10,7 +10,7 @@ except ImportError:
     st.error("Missing dependency openpyxl. Please add it to requirements.txt and install (`pip install openpyxl`).")
     st.stop()
 
-# ------------------ CONFIGURE SHEET IDS ------------------
+
 try:
     ENML_SHEET_ID = st.secrets["ENML_SHEET_ID"]
 except Exception:
@@ -155,7 +155,7 @@ def main():
     st.set_page_config(page_title="📖 മലയാളം നിഘണ്ടു", layout="wide")
     st.title("📖 മലയാളം നിഘണ്ടു – Malayalam Bilingual Dictionary")
 
-    with st.spinner("Loading dictionary... “Words are, in my not-so-humble opinion, our most inexhaustible source of magic.” – Albus Dumbledore"):
+    with st.spinner("“Words are, in my not-so-humble opinion, our most inexhaustible source of magic.” – Albus Dumbledore"):
         if "cached_data" not in st.session_state:
             st.session_state.cached_data = load_data_uncached()
         enml_df, mlml_df = st.session_state.cached_data

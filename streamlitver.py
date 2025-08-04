@@ -2,12 +2,10 @@ import pandas as pd
 import streamlit as st
 import requests
 from pathlib import Path
-import streamlit.components.v1 as components
-import html  # still available if needed
 
 # ---------- guard for openpyxl dependency ----------
 try:
-    import openpyxl  # required by pandas.read_excel for .xlsx
+    import openpyxl  # required for pandas.read_excel for .xlsx
 except ImportError:
     st.error("Missing dependency openpyxl. Please add it to requirements.txt and install (`pip install openpyxl`).")
     st.stop()
@@ -78,18 +76,80 @@ def save_mlml(df: pd.DataFrame):
     except Exception as e:
         st.error(f"Could not save Malayalam-Malayalam dictionary locally: {e}")
 
+def build_prefix_maps():
+    if "prefix_map_enml" not in st.session_state:
+        pm = {}
+        for src, tgt in st.session_state.enml_pairs:
+            for i in range(1, len(src) + 1):
+                key = src[:i]
+                pm.setdefault(key, []).append((src, tgt))
+        st.session_state.prefix_map_enml = pm
+    if "prefix_map_ml_en" not in st.session_state:
+        pm = {}
+        for src, tgt in st.session_state.enml_pairs:
+            t_low = tgt.lower()
+            for i in range(1, len(t_low) + 1):
+                key = t_low[:i]
+                pm.setdefault(key, []).append((t_low, src))
+        st.session_state.prefix_map_ml_en = pm
+    if "prefix_map_mlml" not in st.session_state:
+        pm = {}
+        for src, tgt in st.session_state.mlml_pairs:
+            for i in range(1, len(src) + 1):
+                key = src[:i]
+                pm.setdefault(key, []).append((src, tgt))
+        st.session_state.prefix_map_mlml = pm
+
+def get_suggestions(word_lower: str, direction: str, limit=20):
+    if not word_lower:
+        return []
+    suggestions = []
+    if direction == "English → മലയാളം":
+        matches = st.session_state.prefix_map_enml.get(word_lower, [])
+        suggestions = [src for src, _ in matches]
+    elif direction == "മലയാളം → English":
+        matches = st.session_state.prefix_map_ml_en.get(word_lower, [])
+        suggestions = [src for src, _ in matches]
+    else:
+        matches = st.session_state.prefix_map_mlml.get(word_lower, [])
+        suggestions = [src for src, _ in matches]
+    seen = set()
+    out = []
+    for s in suggestions:
+        if s not in seen:
+            out.append(s)
+            seen.add(s)
+        if len(out) >= limit:
+            break
+    return out
+
 def render_contact():
     st.markdown("### 📬 Let's Connect")
-    cols = st.columns(3)
-    with cols[0]:
-        if st.button("📧 Email"):
-            components.html("""<script>window.location.href='mailto:yaduk883@gmail.com';</script>""", height=0)
-    with cols[1]:
-        if st.button("🐙 GitHub"):
-            components.html("""<script>window.open("https://github.com/yaduk883", "_blank");</script>""", height=0)
-    with cols[2]:
-        if st.button("📸 Instagram"):
-            components.html("""<script>window.open("https://instagram.com/ig.yadu/", "_blank");</script>""", height=0)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(
+            '<a href="mailto:yaduk883@gmail.com" target="_blank" style="text-decoration:none;">'
+            '<div style="display:inline-flex;align-items:center;gap:6px;'
+            'background:#0d6efd;color:white;padding:8px 14px;border-radius:8px;">'
+            '📧 Email</div></a>',
+            unsafe_allow_html=True,
+        )
+    with col2:
+        st.markdown(
+            '<a href="https://github.com/yaduk883" target="_blank" style="text-decoration:none;">'
+            '<div style="display:inline-flex;align-items:center;gap:6px;'
+            'background:#24292f;color:white;padding:8px 14px;border-radius:8px;">'
+            '🐙 GitHub</div></a>',
+            unsafe_allow_html=True,
+        )
+    with col3:
+        st.markdown(
+            '<a href="https://instagram.com/ig.yadu/" target="_blank" style="text-decoration:none;">'
+            '<div style="display:inline-flex;align-items:center;gap:6px;'
+            'background:#E1306C;color:white;padding:8px 14px;border-radius:8px;">'
+            '📸 Instagram</div></a>',
+            unsafe_allow_html=True,
+        )
 
 def main():
     st.set_page_config(page_title="📖 മലയാളം നിഘണ്ടു", layout="wide")
@@ -106,6 +166,8 @@ def main():
         st.session_state.mlml_pairs = list(zip(mlml_df["from_content"].str.lower(), mlml_df["to_content"]))
     if "search_input" not in st.session_state:
         st.session_state.search_input = ""
+
+    build_prefix_maps()
 
     direction = st.radio(
         "Select Direction",
@@ -126,27 +188,11 @@ def main():
 
     with col1:
         st.subheader("Suggestions")
-        suggestions = []
-        if word_lower:
-            if direction == "English → മലയാളം":
-                matches = [(src, tgt) for src, tgt in st.session_state.enml_pairs if src.startswith(word_lower)]
-            elif direction == "മലയാളം → English":
-                matches = [(tgt.lower(), src) for src, tgt in st.session_state.enml_pairs if tgt.lower().startswith(word_lower)]
-            else:
-                matches = [(src, tgt) for src, tgt in st.session_state.mlml_pairs if src.startswith(word_lower)]
-
-            seen = set()
-            for src, tgt in matches:
-                if src not in seen:
-                    suggestions.append(src)
-                    seen.add(src)
-                if len(suggestions) >= 20:
-                    break
-
+        suggestions = get_suggestions(word_lower, direction)
         if suggestions:
-            st.write("Click a suggestion to search:")
+            st.write("Click a suggestion to fill and search:")
             for sug in suggestions:
-                if st.button(sug, key=f"sugg-{sug}"):
+                if st.button(sug, key=f"sugg-{direction}-{sug}"):
                     st.session_state.search_input = sug
                     st.experimental_rerun()
 

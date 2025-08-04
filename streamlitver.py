@@ -3,32 +3,13 @@ import streamlit as st
 import requests
 from pathlib import Path
 import streamlit.components.v1 as components
-import html
-
-# ---------- copy helper (pyperclip fallback to JS) ----------
-def copy_text_to_clipboard(text: str):
-    try:
-        import pyperclip
-        pyperclip.copy(text)
-        return True
-    except Exception:
-        # Fallback to JS
-        try:
-            js = f"""
-            <script>
-            navigator.clipboard.writeText({text!r}).catch(e => console.log('clipboard fallback error', e));
-            </script>
-            """
-            components.html(js, height=0)
-            return True
-        except Exception:
-            return False
+import html  # still available if needed
 
 # ---------- guard for openpyxl dependency ----------
 try:
-    import openpyxl  # needed for Excel reading
+    import openpyxl  # required by pandas.read_excel for .xlsx
 except ImportError:
-    st.error("Missing dependency `openpyxl`. Add it to requirements.txt and install (`pip install openpyxl`).")
+    st.error("Missing dependency openpyxl. Please add it to requirements.txt and install (`pip install openpyxl`).")
     st.stop()
 
 # ------------------ CONFIGURE SHEET IDS ------------------
@@ -133,7 +114,6 @@ def main():
         horizontal=True
     )
 
-    # Live search input
     search_term = st.text_input(
         "തിരയുക 🔍",
         value=st.session_state.get("search_input", ""),
@@ -218,24 +198,13 @@ def main():
                 shown = set()
                 for _, tgt in results:
                     if tgt not in shown:
-                        row_col, copy_col = st.columns([8, 1])
-                        with row_col:
-                            st.write(f"→ {tgt}")
-                        with copy_col:
-                            key = f"copy-{direction}-{tgt}"
-                            if st.button("Copy", key=key):
-                                ok = copy_text_to_clipboard(tgt)
-                                if ok:
-                                    st.success("Copied!")
-                                else:
-                                    st.warning("Copy failed; please select and copy manually.")
+                        st.write(f"→ {tgt}")
                         shown.add(tgt)
             else:
                 st.info("No exact match found.")
         else:
             st.write("Type to search or click a suggestion.")
 
-    # Contact panel
     with st.expander("Contact Me"):
         render_contact()
 

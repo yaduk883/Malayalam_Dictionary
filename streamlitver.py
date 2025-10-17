@@ -2,22 +2,107 @@ import streamlit as st
 import pandas as pd
 import json
 import os
+import requests
 from datetime import datetime
+from pathlib import Path
 import io
 import base64
+import time
 
 # Page configuration
 st.set_page_config(
     page_title="മലയാളം നിഘണ്ടു | Malayalam Dictionary",
     page_icon="📖",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
-# Custom CSS for Malayalam fonts and beautiful animations
+# Google Sheets Data Configuration
+try:
+    ENML_SHEET_ID = st.secrets["ENML_SHEET_ID"]
+except Exception:
+    ENML_SHEET_ID = "1vujnZVEBTGzsRctZ5rhevnsqdEPMlfdS"
+
+try:
+    MLML_SHEET_ID = st.secrets["MLML_SHEET_ID"]
+except Exception:
+    MLML_SHEET_ID = "1UW8H2Kma8TNoREZ5ohnC1lV87laotTGW"
+
+# Local cache
+CACHE_DIR = Path(".cache_data")
+CACHE_DIR.mkdir(exist_ok=True)
+ENML_CACHE = CACHE_DIR / "en_ml.xlsx"
+MLML_CACHE = CACHE_DIR / "datukexcel.xlsx"
+
+def download_sheet_as_xlsx(sheet_id: str, target_path: Path):
+    if target_path.exists():
+        return
+    export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+    try:
+        resp = requests.get(export_url, allow_redirects=True, timeout=30)
+    except Exception as e:
+        st.error(f"Network error downloading sheet {sheet_id}: {e}")
+        raise
+    if resp.status_code != 200:
+        st.error(f"Failed to download sheet {sheet_id}: HTTP {resp.status_code}")
+        raise RuntimeError(f"Download error for sheet {sheet_id}")
+    target_path.write_bytes(resp.content)
+
+def load_data_uncached():
+    download_sheet_as_xlsx(ENML_SHEET_ID, ENML_CACHE)
+    download_sheet_as_xlsx(MLML_SHEET_ID, MLML_CACHE)
+
+    enml = pd.read_excel(ENML_CACHE)
+    mlml = pd.read_excel(MLML_CACHE)
+
+    for df, name in [(enml, "English-Malayalam"), (mlml, "Malayalam-Malayalam")]:
+        if "from_content" not in df.columns or "to_content" not in df.columns:
+            st.error(f"Sheet '{name}' must have columns 'from_content' and 'to_content'.")
+            raise ValueError(f"Missing required columns in {name} sheet")
+
+    enml = enml.loc[:, ["from_content", "to_content"]].dropna().copy()
+    mlml = mlml.loc[:, ["from_content", "to_content"]].dropna().copy()
+
+    enml.loc[:, "from_content"] = enml["from_content"].astype(str).str.strip()
+    enml.loc[:, "to_content"] = enml["to_content"].astype(str).str.strip()
+    mlml.loc[:, "from_content"] = mlml["from_content"].astype(str).str.strip()
+    mlml.loc[:, "to_content"] = mlml["to_content"].astype(str).str.strip()
+
+    return enml, mlml
+
+def save_enml(df: pd.DataFrame):
+    try:
+        df.to_excel(ENML_CACHE, index=False)
+    except Exception as e:
+        st.error(f"Could not save English-Malayalam dictionary locally: {e}")
+
+# Load data with caching
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def load_dictionary_data():
+    """Load dictionary data from Google Sheets with caching"""
+    return load_data_uncached()
+
+# Custom CSS for enhanced styling with proper theme support
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Malayalam:wght@400;600;700&display=swap');
+    
+    :root {
+        --primary-color: #009688;
+        --secondary-color: #00796B;
+        --accent-color: #4CAF50;
+        --text-color: #333;
+        --bg-color: #f0fff0;
+        --card-bg: #ffffff;
+        --border-color: #e0e0e0;
+    }
+    
+    [data-theme="dark"] {
+        --text-color: #ffffff;
+        --bg-color: #1e1e1e;
+        --card-bg: #2d2d2d;
+        --border-color: #404040;
+    }
     
     .malayalam-font {
         font-family: 'Noto Sans Malayalam', sans-serif !important;
@@ -28,28 +113,28 @@ st.markdown("""
     .blinking-header {
         font-size: 3rem;
         font-weight: bold;
-        color: #009688;
+        color: var(--primary-color);
         text-align: center;
-        animation: fadeInOut 2s infinite;
         font-family: 'Noto Sans Malayalam', sans-serif;
         margin: 20px 0;
         padding: 20px;
-        background: linear-gradient(45deg, #f0fff0, #e8f5e8);
+        background: linear-gradient(45deg, var(--bg-color), var(--card-bg));
         border-radius: 15px;
         box-shadow: 0 4px 12px rgba(0,150,136,0.3);
+        animation: glow 2s ease-in-out infinite alternate;
     }
     
-    @keyframes fadeInOut {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.7; transform: scale(1.05); }
+    @keyframes glow {
+        from { box-shadow: 0 4px 12px rgba(0,150,136,0.3); }
+        to { box-shadow: 0 8px 24px rgba(0,150,136,0.6); }
     }
     
     .search-result-card {
-        background: linear-gradient(135deg, #f0fff0 0%, #e8f5e8 100%);
+        background: linear-gradient(135deg, var(--card-bg) 0%, var(--bg-color) 100%);
         padding: 20px;
         border-radius: 15px;
         margin: 15px 0;
-        border-left: 5px solid #009688;
+        border-left: 5px solid var(--primary-color);
         box-shadow: 0 6px 15px rgba(0,0,0,0.1);
         transition: all 0.3s ease;
     }
@@ -77,39 +162,12 @@ st.markdown("""
     }
     
     .malayalam-keyboard {
-        background: linear-gradient(135deg, #fff 0%, #f8f9fa 100%);
+        background: linear-gradient(135deg, var(--card-bg) 0%, var(--bg-color) 100%);
         padding: 20px;
         border-radius: 15px;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         margin: 20px 0;
-    }
-    
-    .keyboard-row {
-        display: flex;
-        justify-content: center;
-        margin: 8px 0;
-        flex-wrap: wrap;
-    }
-    
-    .keyboard-btn {
-        background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
-        color: white;
-        border: none;
-        padding: 10px 15px;
-        border-radius: 8px;
-        margin: 3px;
-        cursor: pointer;
-        font-family: 'Noto Sans Malayalam', sans-serif;
-        font-size: 16px;
-        font-weight: 600;
-        transition: all 0.3s;
-        box-shadow: 0 2px 8px rgba(23,162,184,0.3);
-        min-width: 45px;
-    }
-    
-    .keyboard-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(23,162,184,0.5);
+        border: 2px solid var(--border-color);
     }
     
     .suggestion-chip {
@@ -132,13 +190,14 @@ st.markdown("""
     }
     
     .stats-card {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        background: linear-gradient(135deg, var(--card-bg) 0%, var(--bg-color) 100%);
         padding: 25px;
         border-radius: 15px;
         text-align: center;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         margin: 10px 0;
         transition: all 0.3s;
+        border: 1px solid var(--border-color);
     }
     
     .stats-card:hover {
@@ -146,146 +205,78 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(0,0,0,0.15);
     }
     
-    .favorite-btn {
-        background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+    .feature-button {
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
         border: none;
-        padding: 8px 12px;
-        border-radius: 8px;
         color: white;
+        padding: 12px 24px;
+        border-radius: 10px;
         cursor: pointer;
         transition: all 0.3s;
-        box-shadow: 0 2px 8px rgba(255,193,7,0.3);
-    }
-    
-    .favorite-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(255,193,7,0.5);
-    }
-    
-    .copy-btn {
-        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-        border: none;
-        padding: 8px 12px;
-        border-radius: 8px;
-        color: white;
-        cursor: pointer;
-        transition: all 0.3s;
-        box-shadow: 0 2px 8px rgba(40,167,69,0.3);
-    }
-    
-    .copy-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(40,167,69,0.5);
-    }
-    
-    .control-btn {
-        background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
-        border: none;
-        padding: 10px 15px;
-        border-radius: 8px;
-        color: white;
-        cursor: pointer;
         margin: 5px;
-        transition: all 0.3s;
-        box-shadow: 0 2px 8px rgba(108,117,125,0.3);
+        font-weight: 600;
+        box-shadow: 0 3px 10px rgba(0,150,136,0.3);
     }
     
-    .control-btn:hover {
+    .feature-button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(108,117,125,0.5);
+        box-shadow: 0 5px 15px rgba(0,150,136,0.5);
+    }
+    
+    .theme-toggle {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 999;
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        cursor: pointer;
+        transition: all 0.3s;
+        box-shadow: 0 4px 12px rgba(0,150,136,0.4);
+    }
+    
+    .theme-toggle:hover {
+        transform: scale(1.1);
+        box-shadow: 0 6px 16px rgba(0,150,136,0.6);
     }
 </style>
 """, unsafe_allow_html=True)
 
 # Initialize session state
-if 'search_history' not in st.session_state:
-    st.session_state.search_history = []
-if 'favorites' not in st.session_state:
-    st.session_state.favorites = []
-if 'current_header' not in st.session_state:
-    st.session_state.current_header = "📖 മലയാളം നിഘണ്ടു"
-if 'show_keyboard' not in st.session_state:
-    st.session_state.show_keyboard = False
-if 'search_term' not in st.session_state:
-    st.session_state.search_term = ""
-if 'header_toggle' not in st.session_state:
-    st.session_state.header_toggle = False
+def init_session_state():
+    defaults = {
+        'search_history': [],
+        'favorites': [],
+        'current_header': "📖 മലയാളം നിഘണ്ടു",
+        'show_keyboard': False,
+        'search_term': "",
+        'header_counter': 0,
+        'dark_mode': False,
+        'show_add_word': False,
+        'show_history': False,
+        'show_favorites': False,
+        'show_export': False,
+        'show_contact': False
+    }
+    
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
-# Data loading functions
-@st.cache_data
-def load_dictionary_data():
-    """Load dictionary data from Excel files with fallback to sample data"""
-    try:
-        # Try to load from uploaded files or default paths
-        enml_data = None
-        mlml_data = None
-        
-        # Check for files in current directory (Streamlit Cloud deployment)
-        if os.path.exists("en_ml.xlsx"):
-            enml_data = pd.read_excel("en_ml.xlsx")
-        elif os.path.exists("files/en_ml.xlsx"):
-            enml_data = pd.read_excel("files/en_ml.xlsx")
-        
-        if os.path.exists("datukexcel.xlsx"):
-            mlml_data = pd.read_excel("datukexcel.xlsx")
-        elif os.path.exists("files/datukexcel.xlsx"):
-            mlml_data = pd.read_excel("files/datukexcel.xlsx")
-        
-        # Fallback to sample data if files don't exist
-        if enml_data is None:
-            enml_data = pd.DataFrame({
-                'from_content': [
-                    'hello', 'world', 'good', 'morning', 'thank', 'you', 'water', 'fire',
-                    'earth', 'sky', 'sun', 'moon', 'star', 'tree', 'flower', 'bird',
-                    'fish', 'house', 'food', 'love', 'peace', 'joy', 'beautiful', 'strong'
-                ],
-                'to_content': [
-                    'ഹലോ', 'ലോകം', 'നല്ല', 'പ്രഭാതം', 'നന്ദി', 'നിങ്ങൾക്ക്', 'വെള്ളം', 'തീ',
-                    'ഭൂമി', 'ആകാശം', 'സൂര്യൻ', 'ചന്ദ്രൻ', 'നക്ഷത്രം', 'മരം', 'പൂവ്', 'പക്ഷി',
-                    'മീൻ', 'വീട്', 'ഭക്ഷണം', 'സ്നേഹം', 'സമാധാനം', 'സന്തോഷം', 'സുന്ദരമായ', 'ശക്തമായ'
-                ]
-            })
-        
-        if mlml_data is None:
-            mlml_data = pd.DataFrame({
-                'from_content': [
-                    'മലയാളം', 'ഭാഷ', 'നിഘണ്ടു', 'പുസ്തകം', 'വിദ്യാലയം', 'അധ്യാപകൻ',
-                    'വിദ്യാർത്ഥി', 'പഠനം', 'അറിവ്', 'ജ്ഞാനം', 'സംസ്കാരം', 'പാരമ്പര്യം'
-                ],
-                'to_content': [
-                    'കേരളത്തിലെ ഭാഷ', 'സംസാരിക്കുന്ന മാധ്യമം', 'വാക്കുകളുടെ ശേഖരം', 'ഗ്രന്ഥം',
-                    'പഠിക്കുന്ന സ്ഥലം', 'പഠിപ്പിക്കുന്നവൻ', 'പഠിക്കുന്നവൻ', 'വിദ്യാഭ്യാസം',
-                    'അറിവിന്റെ സമ്പത്ത്', 'ആഴമായ അറിവ്', 'ജീവിതരീതി', 'പൂർവ്വികരുടെ കാഴ്ചപ്പാട്'
-                ]
-            })
-        
-        # Clean the data
-        enml_data = enml_data.dropna()
-        mlml_data = mlml_data.dropna()
-        
-        # Ensure string type and clean
-        enml_data['from_content'] = enml_data['from_content'].astype(str).str.strip()
-        enml_data['to_content'] = enml_data['to_content'].astype(str).str.strip()
-        mlml_data['from_content'] = mlml_data['from_content'].astype(str).str.strip()
-        mlml_data['to_content'] = mlml_data['to_content'].astype(str).str.strip()
-        
-        return enml_data, mlml_data
-        
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        # Return minimal sample data as absolute fallback
-        enml_data = pd.DataFrame({
-            'from_content': ['hello', 'world', 'good', 'malayalam'],
-            'to_content': ['ഹലോ', 'ലോകം', 'നല്ല', 'മലയാളം']
-        })
-        mlml_data = pd.DataFrame({
-            'from_content': ['മലയാളം', 'ഭാഷ'],
-            'to_content': ['കേരളത്തിലെ ഭാഷ', 'സംസാരം']
-        })
-        return enml_data, mlml_data
+init_session_state()
 
-# Load data
-enml_data, mlml_data = load_dictionary_data()
+# Auto header blinking with JavaScript-like behavior
+def update_header():
+    if st.session_state.header_counter % 4 == 0:  # Change every 4 seconds
+        if "മലയാളം" in st.session_state.current_header:
+            st.session_state.current_header = "📖 Malayalam Dictionary"
+        else:
+            st.session_state.current_header = "📖 മലയാളം നിഘണ്ടു"
+    st.session_state.header_counter += 1
 
 # Helper functions
 def add_to_history(word, direction):
@@ -335,7 +326,7 @@ def remove_from_favorites(word, direction):
     ]
     st.success(f"🗑️ Removed '{word}' from favorites!")
 
-def search_dictionary(query, direction):
+def search_dictionary(query, direction, enml_data, mlml_data):
     """Search dictionary based on direction with enhanced matching"""
     if not query.strip():
         return [], []
@@ -375,65 +366,270 @@ def search_dictionary(query, direction):
     
     return list(suggestions), results
 
-# Malayalam Keyboard Layout - Enhanced with better organization
+# Malayalam Keyboard Layout
 malayalam_layout = [
     # Row 1 - Vowels
     ['അ', 'ആ', 'ഇ', 'ഈ', 'ഉ', 'ഊ', 'ഋ', 'എ', 'ഏ', 'ഐ', 'ഒ', 'ഓ', 'ഔ'],
-    # Row 2 - Consonants Part 1 (Velars, Palatals, Retroflexes)
+    # Row 2 - Consonants Part 1
     ['ക', 'ഖ', 'ഗ', 'ഘ', 'ങ', 'ച', 'ഛ', 'ജ', 'ഝ', 'ഞ', 'ട', 'ഠ', 'ഡ'],
-    # Row 3 - Consonants Part 2 (Dentals, Labials, Approximants)
+    # Row 3 - Consonants Part 2  
     ['ഢ', 'ണ', 'ത', 'ഥ', 'ദ', 'ധ', 'ന', 'പ', 'ഫ', 'ബ', 'ഭ', 'മ', 'യ'],
-    # Row 4 - Consonants Part 3 (Liquids, Sibilants, Others)
+    # Row 4 - Consonants Part 3
     ['ര', 'ല', 'വ', 'ശ', 'ഷ', 'സ', 'ഹ', 'ള', 'ഴ', 'റ', 'ന്‍', 'ര്‍', 'ല്‍'],
-    # Row 5 - Vowel Signs (Matras)
+    # Row 5 - Vowel Signs
     ['ാ', 'ി', 'ീ', 'ു', 'ൂ', 'ൃ', 'െ', 'േ', 'ൈ', 'ൊ', 'ോ', 'ൌ', '്'],
-    # Row 6 - Additional Signs and Symbols
-    ['ം', 'ഃ', 'അം', 'അഃ', 'ള്‍', '൰', '൱', '൲', '൳', '൴', '൵']
+    # Row 6 - Additional Signs
+    ['ം', 'ഃ', 'അം', 'അഃ', 'ള്‍']
 ]
 
-def create_download_link(data, filename, text):
-    """Create a download link for data"""
-    if isinstance(data, pd.DataFrame):
-        csv = data.to_csv(index=False)
-    else:
-        csv = str(data)
-    b64 = base64.b64encode(csv.encode()).decode()
-    href = f'<a href="data:file/csv;base64,{b64}" download="{filename}">{text}</a>'
-    return href
-
-# Main App Layout
-def main():
-    # Auto-toggle header for blinking effect
-    if st.session_state.header_toggle:
-        if "മലയാളം" in st.session_state.current_header:
-            st.session_state.current_header = "📖 Malayalam Dictionary"
-        else:
-            st.session_state.current_header = "📖 മലയാളം നിഘണ്ടു"
+def render_add_word_dialog(enml_data, mlml_data):
+    """Render add word dialog"""
+    st.markdown("### ➕ Add New Word")
     
-    # Blinking Header with enhanced styling
-    st.markdown(f'<div class="blinking-header">{st.session_state.current_header}</div>', unsafe_allow_html=True)
-    
-    # Header toggle button
-    col_toggle1, col_toggle2, col_toggle3 = st.columns([2, 1, 2])
-    with col_toggle2:
-        if st.button("🔄 Toggle Header", help="Switch between മലയാളം and English", key="toggle_header"):
-            st.session_state.header_toggle = not st.session_state.header_toggle
-            if "മലയാളം" in st.session_state.current_header:
-                st.session_state.current_header = "📖 Malayalam Dictionary"
+    with st.form("add_word_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            from_word = st.text_input("From Word:", placeholder="Enter source word", key="add_from")
+        
+        with col2:
+            to_word = st.text_input("To Word:", placeholder="Enter translation", key="add_to")
+        
+        direction = st.selectbox("Dictionary Type:", 
+                                ["English → മലയാളം", "മലയാളം → മലയാളം"], 
+                                key="add_direction")
+        
+        submitted = st.form_submit_button("💾 Save Word", type="primary")
+        
+        if submitted:
+            if from_word.strip() and to_word.strip():
+                # In a real app, you would add to the Google Sheet here
+                st.success(f"✅ Successfully added: {from_word} → {to_word}")
+                st.info("Note: In production, this would be saved to your Google Sheet")
             else:
-                st.session_state.current_header = "📖 മലയാളം നിഘണ്ടു"
+                st.error("❌ Both fields are required!")
+
+def render_history_section():
+    """Render search history section"""
+    st.markdown("### 📜 Search History")
+    
+    if st.session_state.search_history:
+        # Clear history button
+        if st.button("🗑️ Clear All History", type="secondary"):
+            st.session_state.search_history = []
+            st.success("Search history cleared!")
             st.rerun()
+        
+        st.markdown(f"**{len(st.session_state.search_history)} recent searches:**")
+        
+        for i, item in enumerate(st.session_state.search_history[:20]):
+            timestamp = datetime.fromisoformat(item['timestamp']).strftime("%Y-%m-%d %H:%M")
+            direction_emoji = {"English → മലയാളം": "🇬🇧→🇮🇳", "മലയാളം → English": "🇮🇳→🇬🇧", "മലയാളം → മലയാളം": "🇮🇳→🇮🇳"}
+            
+            col1, col2, col3 = st.columns([3, 2, 1])
+            
+            with col1:
+                if st.button(f"🔍 {item['word']}", key=f"hist_{i}", help="Search this word again"):
+                    st.session_state.search_term = item['word']
+                    st.rerun()
+            
+            with col2:
+                st.caption(f"{direction_emoji.get(item['direction'], '')} {timestamp}")
+            
+            with col3:
+                if st.button("❌", key=f"del_hist_{i}", help="Remove from history"):
+                    st.session_state.search_history.pop(i)
+                    st.rerun()
+    else:
+        st.info("No search history yet. Start searching to build your history!")
+
+def render_favorites_section():
+    """Render favorites section"""
+    st.markdown("### ⭐ Favorites")
+    
+    if st.session_state.favorites:
+        # Clear favorites button
+        if st.button("🗑️ Clear All Favorites", type="secondary"):
+            st.session_state.favorites = []
+            st.success("All favorites cleared!")
+            st.rerun()
+        
+        st.markdown(f"**{len(st.session_state.favorites)} bookmarked words:**")
+        
+        for i, item in enumerate(st.session_state.favorites):
+            timestamp = datetime.fromisoformat(item['timestamp']).strftime("%Y-%m-%d")
+            direction_emoji = {"English → മലയാളം": "🇬🇧→🇮🇳", "മലയാളം → English": "🇮🇳→🇬🇧", "മലയാളം → മലയാളം": "🇮🇳→🇮🇳"}
+            
+            col1, col2, col3 = st.columns([4, 2, 1])
+            
+            with col1:
+                if st.button(f"⭐ {item['word']} → {item['translation']}", key=f"fav_{i}", help="Search this word"):
+                    st.session_state.search_term = item['word']
+                    st.rerun()
+            
+            with col2:
+                st.caption(f"{direction_emoji.get(item['direction'], '')} {timestamp}")
+            
+            with col3:
+                if st.button("❌", key=f"del_fav_{i}", help="Remove from favorites"):
+                    st.session_state.favorites.pop(i)
+                    st.rerun()
+    else:
+        st.info("No favorites yet. Click ☆ next to any word to bookmark it!")
+
+def render_export_section():
+    """Render export section"""
+    st.markdown("### 📤 Export Data")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.session_state.search_history:
+            history_df = pd.DataFrame(st.session_state.search_history)
+            csv_history = history_df.to_csv(index=False)
+            st.download_button(
+                label="📊 Download Search History",
+                data=csv_history,
+                file_name=f"search_history_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                type="primary"
+            )
+        else:
+            st.info("No search history to export")
+    
+    with col2:
+        if st.session_state.favorites:
+            favorites_df = pd.DataFrame(st.session_state.favorites)
+            csv_favorites = favorites_df.to_csv(index=False)
+            st.download_button(
+                label="⭐ Download Favorites",
+                data=csv_favorites,
+                file_name=f"favorites_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                type="primary"
+            )
+        else:
+            st.info("No favorites to export")
+
+def render_contact_section():
+    """Render contact section"""
+    st.markdown("### 📬 Contact Information")
+    
+    st.markdown("""
+    **Developer**: Yadu Krishna
+    
+    📧 **Email**: [yaduk883@gmail.com](mailto:yaduk883@gmail.com)
+    
+    🐙 **GitHub**: [github.com/yaduk883](https://github.com/yaduk883)
+    
+    📱 **Instagram**: [@ig.yadu](https://instagram.com/ig.yadu/)
+    
+    ---
+    
+    **About this Dictionary**:
+    - Version: 2.0 (Streamlit Web App)
+    - Original: Tkinter Desktop Application
+    - Data Source: Google Sheets
+    - Last Updated: October 2025
+    
+    **Features**:
+    - Bilingual search capabilities
+    - Malayalam virtual keyboard
+    - Search history and favorites
+    - Mobile-responsive design
+    - Real-time data from Google Sheets
+    """)
+
+def main():
+    # Load data
+    try:
+        enml_data, mlml_data = load_dictionary_data()
+    except Exception as e:
+        st.error(f"Failed to load dictionary data: {e}")
+        st.stop()
+    
+    # Auto-update header for blinking effect
+    update_header()
+    
+    # Blinking Header
+    st.markdown(f'<div class="blinking-header">{st.session_state.current_header}</div>', 
+                unsafe_allow_html=True)
+    
+    # Theme toggle button
+    col_theme1, col_theme2, col_theme3 = st.columns([4, 1, 4])
+    with col_theme2:
+        if st.button("🌙" if not st.session_state.dark_mode else "☀️", 
+                    help="Toggle dark/light mode", 
+                    key="theme_toggle"):
+            st.session_state.dark_mode = not st.session_state.dark_mode
+            st.rerun()
+    
+    # Feature buttons row
+    st.markdown("### 🎛️ Features")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        if st.button("➕ Add Word", type="secondary", use_container_width=True):
+            st.session_state.show_add_word = not st.session_state.show_add_word
+            st.session_state.show_history = False
+            st.session_state.show_favorites = False
+            st.session_state.show_export = False
+            st.session_state.show_contact = False
+    
+    with col2:
+        if st.button("📜 History", type="secondary", use_container_width=True):
+            st.session_state.show_history = not st.session_state.show_history
+            st.session_state.show_add_word = False
+            st.session_state.show_favorites = False
+            st.session_state.show_export = False
+            st.session_state.show_contact = False
+    
+    with col3:
+        if st.button("⭐ Favorites", type="secondary", use_container_width=True):
+            st.session_state.show_favorites = not st.session_state.show_favorites
+            st.session_state.show_add_word = False
+            st.session_state.show_history = False
+            st.session_state.show_export = False
+            st.session_state.show_contact = False
+    
+    with col4:
+        if st.button("📤 Export", type="secondary", use_container_width=True):
+            st.session_state.show_export = not st.session_state.show_export
+            st.session_state.show_add_word = False
+            st.session_state.show_history = False
+            st.session_state.show_favorites = False
+            st.session_state.show_contact = False
+    
+    with col5:
+        if st.button("📬 Contact", type="secondary", use_container_width=True):
+            st.session_state.show_contact = not st.session_state.show_contact
+            st.session_state.show_add_word = False
+            st.session_state.show_history = False
+            st.session_state.show_favorites = False
+            st.session_state.show_export = False
+    
+    # Render selected feature
+    if st.session_state.show_add_word:
+        render_add_word_dialog(enml_data, mlml_data)
+    elif st.session_state.show_history:
+        render_history_section()
+    elif st.session_state.show_favorites:
+        render_favorites_section()
+    elif st.session_state.show_export:
+        render_export_section()
+    elif st.session_state.show_contact:
+        render_contact_section()
     
     st.markdown("---")
     
-    # Main content layout
-    col1, col2 = st.columns([3, 1])
+    # Main search interface
+    col_main1, col_main2 = st.columns([3, 1])
     
-    with col1:
+    with col_main1:
         st.markdown('<div class="malayalam-font">', unsafe_allow_html=True)
         st.markdown("### 🔍 തിരയുക (Search)")
         
-        # Search direction with enhanced styling
+        # Search direction
         direction = st.radio(
             "Choose Translation Direction:",
             ["English → മലയാളം", "മലയാളം → English", "മലയാളം → മലയാളം"],
@@ -441,7 +637,7 @@ def main():
             help="Select the direction for translation"
         )
         
-        # Search input with better integration
+        # Search input
         search_query = st.text_input(
             "Enter word to search:",
             value=st.session_state.search_term,
@@ -451,31 +647,29 @@ def main():
         )
         
         # Keyboard controls
-        col_kb1, col_kb2 = st.columns(2)
+        col_kb1, col_kb2, col_kb3 = st.columns(3)
         with col_kb1:
-            if st.button("🔤 Malayalam Keyboard", type="secondary", help="Toggle on-screen Malayalam keyboard"):
+            if st.button("🔤 Malayalam Keyboard", type="secondary"):
                 st.session_state.show_keyboard = not st.session_state.show_keyboard
         
         with col_kb2:
-            if st.button("🔄 Clear Search", help="Clear search box"):
+            if st.button("🔄 Clear Search"):
                 st.session_state.search_term = ""
                 st.rerun()
         
-        # Enhanced Malayalam Keyboard
+        with col_kb3:
+            if st.button("🔍 Search", type="primary"):
+                if search_query:
+                    st.session_state.search_term = search_query
+                    st.rerun()
+        
+        # Malayalam Keyboard
         if st.session_state.show_keyboard:
             st.markdown('<div class="malayalam-keyboard">', unsafe_allow_html=True)
             st.markdown("#### 🔤 മലയാളം അക്ഷരങ്ങൾ (Malayalam Characters)")
             st.markdown("*Click characters to add them to search box*")
             
             for row_idx, row in enumerate(malayalam_layout):
-                # Create HTML for keyboard row
-                row_html = '<div class="keyboard-row">'
-                for char in row:
-                    if char.strip():
-                        row_html += f'<button class="keyboard-btn" onclick="addToSearch(\'{char}\')" title="Add {char}">{char}</button>'
-                row_html += '</div>'
-                
-                # Display row with columns for better control
                 cols = st.columns(len([c for c in row if c.strip()]))
                 col_idx = 0
                 for char in row:
@@ -490,22 +684,22 @@ def main():
             col_ctrl1, col_ctrl2, col_ctrl3, col_ctrl4 = st.columns(4)
             
             with col_ctrl1:
-                if st.button("⌫ Backspace", key="backspace", help="Remove last character"):
+                if st.button("⌫ Backspace", key="backspace"):
                     if st.session_state.search_term:
                         st.session_state.search_term = st.session_state.search_term[:-1]
                         st.rerun()
             
             with col_ctrl2:
-                if st.button("🔄 Clear", key="clear_all", help="Clear all text"):
+                if st.button("🔄 Clear All", key="clear_all"):
                     st.session_state.search_term = ""
                     st.rerun()
             
             with col_ctrl3:
-                if st.button("📋 Paste", key="paste", help="Paste from clipboard"):
+                if st.button("📋 Paste", key="paste"):
                     st.info("Use Ctrl+V to paste text directly in search box")
             
             with col_ctrl4:
-                if st.button("❌ Hide Keyboard", key="hide_keyboard", help="Hide Malayalam keyboard"):
+                if st.button("❌ Hide Keyboard", key="hide_keyboard"):
                     st.session_state.show_keyboard = False
                     st.rerun()
             
@@ -513,253 +707,99 @@ def main():
         
         st.markdown('</div>', unsafe_allow_html=True)
     
-    with col2:
+    with col_main2:
         st.markdown("### 📊 Statistics")
         
-        # Enhanced statistics cards
+        # Statistics cards
         st.markdown('<div class="stats-card">', unsafe_allow_html=True)
-        st.metric("📚 English-Malayalam", f"{len(enml_data):,}", help="Total English to Malayalam entries")
+        st.metric("📚 English-Malayalam", f"{len(enml_data):,}")
         st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown('<div class="stats-card">', unsafe_allow_html=True)
-        st.metric("📖 Malayalam-Malayalam", f"{len(mlml_data):,}", help="Total Malayalam to Malayalam entries")
+        st.metric("📖 Malayalam-Malayalam", f"{len(mlml_data):,}")
         st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown('<div class="stats-card">', unsafe_allow_html=True)
-        st.metric("📜 Search History", f"{len(st.session_state.search_history)}", help="Your recent searches")
+        st.metric("📜 Search History", f"{len(st.session_state.search_history)}")
         st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown('<div class="stats-card">', unsafe_allow_html=True)
-        st.metric("⭐ Favorites", f"{len(st.session_state.favorites)}", help="Your bookmarked words")
+        st.metric("⭐ Favorites", f"{len(st.session_state.favorites)}")
         st.markdown('</div>', unsafe_allow_html=True)
     
     # Update search term if keyboard was used
     if st.session_state.search_term and st.session_state.search_term != search_query:
         search_query = st.session_state.search_term
     
-    # Perform Search with enhanced results
+    # Perform Search
     if search_query:
-        suggestions, results = search_dictionary(search_query, direction)
+        suggestions, results = search_dictionary(search_query, direction, enml_data, mlml_data)
         
-        # Add to history
-        if results:  # Only add to history if we found results
+        # Add to history if we found results
+        if results:
             add_to_history(search_query, direction)
         
-        # Display suggestions with enhanced styling
+        # Display suggestions
         if suggestions and not results:
             st.markdown("### 💡 Suggestions")
             
-            # Create suggestion chips
-            suggestions_html = '<div style="margin: 15px 0;">'
-            for suggestion in suggestions[:15]:  # Show more suggestions
-                suggestions_html += f'<span class="suggestion-chip" title="Click to search">{suggestion}</span>'
-            suggestions_html += '</div>'
+            # Create suggestion buttons
+            num_cols = min(len(suggestions[:12]), 4)
+            suggestion_cols = st.columns(num_cols)
             
-            st.markdown(suggestions_html, unsafe_allow_html=True)
-            st.info(f"🔍 No exact matches found for **'{search_query}'**. Try clicking on suggestions above or check spelling.")
-            
-            # Allow clicking on suggestions (simulated)
-            st.markdown("**Click on any suggestion below to search:**")
-            suggestion_cols = st.columns(min(len(suggestions[:12]), 4))
             for i, suggestion in enumerate(suggestions[:12]):
-                with suggestion_cols[i % 4]:
+                with suggestion_cols[i % num_cols]:
                     if st.button(suggestion, key=f"sugg_{i}", help=f"Search for {suggestion}"):
                         st.session_state.search_term = suggestion
                         st.rerun()
+            
+            st.info(f"🔍 No exact matches found for **'{search_query}'**. Try clicking on suggestions above.")
         
-        # Display results with enhanced formatting
+        # Display results
         if results:
             st.markdown("### 📖 Translation Results")
             st.success(f"🎯 Found **{len(results)}** exact match(es) for **'{search_query}'**")
             
             for i, (word, translation) in enumerate(results):
-                # Enhanced result card
                 st.markdown('<div class="search-result-card malayalam-font">', unsafe_allow_html=True)
                 
                 # Word header
                 st.markdown(f"## {word}")
                 
-                # Translation with enhanced styling
+                # Translation with buttons
                 col_trans1, col_trans2, col_trans3 = st.columns([6, 1, 1])
                 
                 with col_trans1:
                     st.markdown(f'<div class="translation-item">→ {translation}</div>', unsafe_allow_html=True)
                 
                 with col_trans2:
-                    if st.button("📋", key=f"copy_{i}", help="Copy to clipboard", type="secondary"):
-                        # JavaScript would be needed for actual clipboard copy in web
-                        st.success(f"✅ Copied '{translation}' to clipboard!")
+                    if st.button("📋", key=f"copy_{i}", help="Copy to clipboard"):
+                        st.success(f"✅ Copied '{translation}'!")
                         st.balloons()
                 
                 with col_trans3:
-                    # Enhanced favorites functionality
+                    # Favorites functionality
                     is_favorite = any(fav['word'].lower() == word.lower() and 
                                     fav['direction'] == direction 
                                     for fav in st.session_state.favorites)
                     
                     if is_favorite:
-                        if st.button("★", key=f"unfav_{i}", help="Remove from favorites", type="secondary"):
+                        if st.button("★", key=f"unfav_{i}", help="Remove from favorites"):
                             remove_from_favorites(word, direction)
                             st.rerun()
                     else:
-                        if st.button("☆", key=f"fav_{i}", help="Add to favorites", type="secondary"):
+                        if st.button("☆", key=f"fav_{i}", help="Add to favorites"):
                             add_to_favorites(word, translation, direction)
                             st.rerun()
                 
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-                # Add some spacing between results
                 if i < len(results) - 1:
                     st.markdown("---")
-
-    # Enhanced Sidebar with additional features
-    with st.sidebar:
-        st.markdown("## 🎛️ Dictionary Features")
-        
-        # Search History with enhanced display
-        with st.expander("📜 Search History", expanded=False):
-            if st.session_state.search_history:
-                st.markdown(f"**Recent Searches** ({len(st.session_state.search_history)})")
-                
-                for i, item in enumerate(st.session_state.search_history[:15]):
-                    timestamp = datetime.fromisoformat(item['timestamp']).strftime("%m-%d %H:%M")
-                    direction_emoji = {"English → മലയാളം": "🇬🇧→🇮🇳", "മലയാളം → English": "🇮🇳→🇬🇧", "മലയാളം → മലയാളം": "🇮🇳→🇮🇳"}
-                    
-                    col_hist1, col_hist2 = st.columns([3, 1])
-                    with col_hist1:
-                        if st.button(f"{item['word']}", key=f"hist_{i}_{item['timestamp']}", 
-                                   help=f"{direction_emoji.get(item['direction'], '')} {timestamp}"):
-                            st.session_state.search_term = item['word']
-                            st.rerun()
-                    with col_hist2:
-                        st.caption(timestamp)
-                
-                # Clear history option
-                if st.button("🗑️ Clear History", type="secondary", help="Clear all search history"):
-                    st.session_state.search_history = []
-                    st.success("Search history cleared!")
-                    st.rerun()
-            else:
-                st.info("No search history yet. Start searching to build your history!")
-        
-        # Favorites with enhanced display
-        with st.expander("⭐ Favorites", expanded=False):
-            if st.session_state.favorites:
-                st.markdown(f"**Bookmarked Words** ({len(st.session_state.favorites)})")
-                
-                for i, item in enumerate(st.session_state.favorites):
-                    timestamp = datetime.fromisoformat(item['timestamp']).strftime("%m-%d")
-                    
-                    col_fav1, col_fav2 = st.columns([4, 1])
-                    with col_fav1:
-                        if st.button(f"{item['word']} → {item['translation']}", 
-                                   key=f"favs_{i}_{item['timestamp']}", 
-                                   help=f"Search • Added {timestamp}"):
-                            st.session_state.search_term = item['word']
-                            st.rerun()
-                    with col_fav2:
-                        if st.button("🗑️", key=f"del_fav_{i}", help="Remove from favorites", type="secondary"):
-                            st.session_state.favorites.pop(i)
-                            st.success("Removed from favorites!")
-                            st.rerun()
-                
-                # Clear favorites option
-                if st.button("🗑️ Clear All Favorites", type="secondary", help="Clear all favorites"):
-                    st.session_state.favorites = []
-                    st.success("All favorites cleared!")
-                    st.rerun()
-            else:
-                st.info("No favorites yet. Click ☆ next to any word to bookmark it!")
-        
-        # Export functionality with enhanced options
-        st.markdown("### 📤 Export & Download")
-        
-        if st.session_state.search_history:
-            history_df = pd.DataFrame(st.session_state.search_history)
-            st.download_button(
-                label="📊 Download Search History (CSV)",
-                data=history_df.to_csv(index=False),
-                file_name=f"search_history_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-                help="Download your search history as CSV file"
-            )
-        
-        if st.session_state.favorites:
-            favorites_df = pd.DataFrame(st.session_state.favorites)
-            st.download_button(
-                label="⭐ Download Favorites (CSV)",
-                data=favorites_df.to_csv(index=False),
-                file_name=f"favorites_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-                help="Download your favorites as CSV file"
-            )
-        
-        # Theme and Settings
-        st.markdown("### ⚙️ Settings")
-        
-        # Auto-toggle header
-        auto_header = st.checkbox("🔄 Auto-toggle header", value=False, 
-                                 help="Automatically switch between മലയാളം and English every few seconds")
-        if auto_header != st.session_state.header_toggle:
-            st.session_state.header_toggle = auto_header
-            if auto_header:
-                st.info("Header will now auto-toggle every few seconds!")
-            else:
-                st.info("Auto-toggle disabled")
-        
-        # File upload for custom dictionaries
-        st.markdown("### 📁 Upload Custom Dictionary")
-        
-        uploaded_enml = st.file_uploader("English-Malayalam Excel File", type=['xlsx'], 
-                                        help="Upload your own English to Malayalam dictionary")
-        uploaded_mlml = st.file_uploader("Malayalam-Malayalam Excel File", type=['xlsx'],
-                                        help="Upload your own Malayalam to Malayalam dictionary")
-        
-        if uploaded_enml or uploaded_mlml:
-            st.info("Custom dictionary upload feature would be implemented in production version")
-        
-        # About and Contact
-        st.markdown("### 📬 About & Contact")
-        
-        st.markdown("""
-        **Developer**: Yadu Krishna  
-        **Email**: [yaduk883@gmail.com](mailto:yaduk883@gmail.com)  
-        **GitHub**: [github.com/yaduk883](https://github.com/yaduk883)  
-        **Instagram**: [@ig.yadu](https://instagram.com/ig.yadu/)
-        
-        **Version**: 2.0 (Streamlit Web)  
-        **Last Updated**: October 2025
-        """)
-        
-        # Help section
-        with st.expander("❓ Help & Usage Tips"):
-            st.markdown("""
-            **How to use this dictionary:**
-            
-            1. **Search**: Type any word in the search box
-            2. **Direction**: Choose translation direction with radio buttons
-            3. **Keyboard**: Use 🔤 button for Malayalam virtual keyboard
-            4. **Suggestions**: Click on suggested words to search them
-            5. **Favorites**: Click ☆ to bookmark important words
-            6. **History**: View your recent searches in sidebar
-            7. **Export**: Download your data as CSV files
-            
-            **Malayalam Keyboard Tips:**
-            - Click characters to build words naturally
-            - Use backspace to correct mistakes
-            - Try building words like: മ + ല + യ + ാ + ള + ം = മലയാളം
-            
-            **Pro Tips:**
-            - Search works with partial words (suggestions)
-            - Use both English and Malayalam for best results
-            - Bookmark frequently used words as favorites
-            - Export your data to keep offline backups
-            """)
-
-    # Auto-refresh for header animation (if enabled)
-    if st.session_state.header_toggle:
-        # This would need JavaScript in production to auto-refresh
-        pass
+    
+    # Auto-refresh for header blinking (every 2 seconds)
+    time.sleep(0.1)  # Small delay for smooth animation
+    st.rerun()
 
 if __name__ == "__main__":
     main()

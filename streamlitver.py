@@ -138,13 +138,6 @@ st.markdown("""
         --border-color: #e0e0e0;
     }
     
-    [data-theme="dark"] {
-        --text-color: #ffffff; /* Dark mode text color (White text) */
-        --bg-color: #1e1e1e;
-        --card-bg: #2d2d2d;
-        --border-color: #404040;
-    }
-    
     .malayalam-font {
         font-family: 'Noto Sans Malayalam', sans-serif !important;
         font-size: 18px;
@@ -190,6 +183,20 @@ st.markdown("""
     }
 
     /* FIX: Apply dark/white text color to the translation items */
+    .exact-match-item {
+        background-color: var(--secondary-color) !important; /* Darker background for contrast */
+        padding: 10px 15px;
+        margin: 10px 0;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    }
+    
+    .exact-match-item .translation-text {
+        color: white !important; /* White text as requested */
+        font-weight: 700;
+        font-size: 17px;
+    }
+
     .translation-item {
         background-color: rgba(0, 150, 136, 0.05); 
         padding: 8px 12px;
@@ -295,26 +302,6 @@ st.markdown("""
         box-shadow: 0 5px 15px rgba(0,150,136,0.5);
     }
     
-    .theme-toggle {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 999;
-        background: var(--primary-color);
-        color: white;
-        border: none;
-        border-radius: 50%;
-        width: 50px;
-        height: 50px;
-        cursor: pointer;
-        transition: all 0.3s;
-        box-shadow: 0 4px 12px rgba(0,150,136,0.4);
-    }
-    
-    .theme-toggle:hover {
-        transform: scale(1.1);
-        box-shadow: 0 6px 16px rgba(0,150,136,0.6);
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -327,7 +314,6 @@ def init_session_state():
         'show_keyboard': False,
         'search_term': "",
         'header_counter': 0,
-        'dark_mode': False,
         'show_add_word': False,
         'show_history': False,
         'show_favorites': False,
@@ -464,7 +450,7 @@ malayalam_layout = [
     ['അ', 'ആ', 'ഇ', 'ഈ', 'ഉ', 'ഊ', 'ഋ', 'എ', 'ഏ', 'ഐ', 'ഒ', 'ഓ', 'ഔ'],
     # Row 2 - Consonants Part 1
     ['ക', 'ഖ', 'ഗ', 'ഘ', 'ങ', 'ച', 'ഛ', 'ജ', 'ഝ', 'ഞ', 'ട', 'ഠ', 'ഡ'],
-    # Row 3 - Consonants Part 2  
+    # Row 3 - Consonants Part 2
     ['ഢ', 'ണ', 'ത', 'ഥ', 'ദ', 'ധ', 'ന', 'പ', 'ഫ', 'ബ', 'ഭ', 'മ', 'യ'],
     # Row 4 - Consonants Part 3
     ['ര', 'ല', 'വ', 'ശ', 'ഷ', 'സ', 'ഹ', 'ള', 'ഴ', 'റ', 'ന്‍', 'ര്‍', 'ല്‍'],
@@ -650,15 +636,6 @@ def main():
     st.markdown(f'<div class="blinking-header">{st.session_state.current_header}</div>', 
                 unsafe_allow_html=True)
     
-    # Theme toggle button
-    col_theme1, col_theme2, col_theme3 = st.columns([4, 1, 4])
-    with col_theme2:
-        # Use an empty container to hold a button that triggers a rerun to apply theme
-        if st.button("🌙" if not st.session_state.dark_mode else "☀️", 
-                     help="Toggle dark/light mode", 
-                     key="theme_toggle"):
-            st.session_state.dark_mode = not st.session_state.dark_mode
-            # Theme change is visual, no immediate rerun needed by design, but we keep it for consistency
     
     # Feature buttons row
     st.markdown("### ")
@@ -718,6 +695,23 @@ def main():
     
     st.markdown("---")
     
+    # Search is performed if search_term is not empty
+    final_search_query = st.session_state.search_term
+    exact_results = []
+    related_results = []
+    
+    if final_search_query:
+        # We search once to get all results
+        # The first returned value (live_suggestions) is only used in col_main2 now.
+        _, exact_results, related_results = search_dictionary(final_search_query, direction, enml_data, mlml_data)
+        
+        # Combine all results, prioritizing exact matches
+        all_results = exact_results + related_results
+        
+        # Add to history if we found *any* results (exact or related)
+        if all_results:
+            add_to_history(final_search_query, direction)
+
     # Main search interface
     col_main1, col_main2 = st.columns([4, 1]) 
     
@@ -768,28 +762,6 @@ def main():
                     # Force a search based on the current search term
                     pass # The logic below will handle the search
         
-        
-        # --- Real-time Suggestions/Type Prediction Display ---
-        if st.session_state.search_term:
-            # Retrieve suggestions based on the current live input
-            live_suggestions, _, _ = search_dictionary(st.session_state.search_term, direction, enml_data, mlml_data)
-            
-            if live_suggestions:
-                st.markdown("### 💡 Autocomplete Suggestions")
-                st.markdown('<div class="suggestion-chip-container">', unsafe_allow_html=True)
-                
-                # Display only the top few suggestions
-                for i, suggestion in enumerate(live_suggestions[:8]):
-                    # Use a button styled as a chip to set the search term
-                    if st.button(suggestion, key=f"autocomplete_{i}", help=f"Set search word to {suggestion}",):
-                        st.session_state.search_term = suggestion
-                        st.session_state.search_input_live = suggestion # Update input widget value
-                        st.rerun()
-                
-                st.markdown('</div>', unsafe_allow_html=True)
-        # --- End Real-time Suggestions ---
-
-
         # Malayalam Keyboard
         if st.session_state.show_keyboard:
             st.markdown('<div class="malayalam-keyboard">', unsafe_allow_html=True)
@@ -838,22 +810,9 @@ def main():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Search is performed if search_term is not empty
-        final_search_query = st.session_state.search_term
         
         if final_search_query:
-            # We already ran the dictionary search once for live suggestions, but run again 
-            # to get final results structure.
-            _, exact_results, related_results = search_dictionary(final_search_query, direction, enml_data, mlml_data)
-            
-            # Combine all results, prioritizing exact matches
-            all_results = exact_results + related_results
-            
-            # Add to history if we found *any* results (exact or related)
-            if all_results:
-                add_to_history(final_search_query, direction)
-            
-            # --- Results Display ---
+            # --- Results Display (Left Column: ONLY EXACT MATCHES) ---
             if all_results:
                 # Find the primary word (first occurrence)
                 primary_word = all_results[0][0] 
@@ -883,11 +842,11 @@ def main():
                         row_cols = st.columns([6, 1, 1], gap="small")
                         
                         with row_cols[0]:
-                             st.markdown(f'''
-                            <div class="translation-item" style="display: flex; align-items: center; height: 30px;">
+                             st.markdown(f"""
+                            <div class="exact-match-item" style="display: flex; align-items: center;">
                                 <div class="translation-text">→ <b>{word}</b>: {translation}</div>
                             </div>
-                            ''', unsafe_allow_html=True)
+                            """, unsafe_allow_html=True)
                         
                         with row_cols[1]:
                             if st.button("📋", key=f"copy_exact_{i}", help="Copy translation to clipboard", use_container_width=True):
@@ -902,38 +861,6 @@ def main():
                                 if st.button("☆", key=f"fav_exact_{i}", help="Add to favorites", type="secondary", use_container_width=True):
                                     add_to_favorites(word, translation, direction)
                                     st.rerun()
-                
-                # Display Related Matches
-                if related_results:
-                    st.markdown('**Related Words (Suggested):**')
-                    for i, (word, translation) in enumerate(related_results):
-                        is_favorite = is_word_favorite(word, translation, direction)
-                        
-                        row_cols = st.columns([6, 1, 1], gap="small")
-                        
-                        with row_cols[0]:
-                            # Wrap the suggested word in a clickable text block for a new search
-                            if st.button(f"→ {word}: {translation}", key=f"related_search_{i}", help=f"Search for {word} instead"):
-                                st.session_state.search_term = word
-                                st.session_state.search_input_live = word
-                                st.rerun()
-                        
-                        # Note: Copy and Favorite buttons are generally applied to the *translation* of the *searched* word, 
-                        # but here we apply them to the related word's translation for consistency.
-                        with row_cols[1]:
-                            if st.button("📋", key=f"copy_related_{i}", help="Copy translation to clipboard", use_container_width=True):
-                                copy_to_clipboard_js(translation)
-                                
-                        with row_cols[2]:
-                            if is_favorite:
-                                if st.button("★", key=f"unfav_related_{i}", help="Remove from favorites", type="primary", use_container_width=True):
-                                    remove_from_favorites(word, translation, direction)
-                                    st.rerun()
-                            else:
-                                if st.button("☆", key=f"fav_related_{i}", help="Add to favorites", type="secondary", use_container_width=True):
-                                    add_to_favorites(word, translation, direction)
-                                    st.rerun()
-
 
                 st.markdown('</div>', unsafe_allow_html=True)
                 
@@ -941,27 +868,76 @@ def main():
                 st.info(f"🔍 No exact or related words found for **'{final_search_query}'**.")
 
 
-    # Statistics Tab (Right Column)
+    # Statistics/Suggestions Tab (Right Column)
     with col_main2:
-        st.markdown("### 📊 Statistics")
+        st.markdown("### 💡 Suggestions & Stats")
         
-        # Statistics cards
-        st.markdown('<div class="stats-card">', unsafe_allow_html=True)
-        st.metric("📚 English-Malayalam", f"{len(enml_data):,}")
-        st.markdown('</div>', unsafe_allow_html=True)
+        # 4. HIDE AND UNHIDE STATISTICS WITH DROP DOWN MENU
+        with st.expander("📊 Show Statistics", expanded=False):
+            st.markdown("---")
+            st.markdown('<div class="stats-card">', unsafe_allow_html=True)
+            st.metric("📚 English-Malayalam", f"{len(enml_data):,}")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            st.markdown('<div class="stats-card">', unsafe_allow_html=True)
+            st.metric("📖 Malayalam-Malayalam", f"{len(mlml_data):,}")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            st.markdown('<div class="stats-card">', unsafe_allow_html=True)
+            st.metric("📜 Search History", f"{len(st.session_state.search_history)}")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            st.markdown('<div class="stats-card">', unsafe_allow_html=True)
+            st.metric("⭐ Favorites", f"{len(st.session_state.favorites)}")
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("---")
+
+
+        # --- Suggestions Display Logic (Right Column) ---
         
-        st.markdown('<div class="stats-card">', unsafe_allow_html=True)
-        st.metric("📖 Malayalam-Malayalam", f"{len(mlml_data):,}")
-        st.markdown('</div>', unsafe_allow_html=True)
+        # Logic to decide what to show in the Suggestions area:
+        # 1. Real-time Autocomplete (while typing)
+        # 2. Related Words/Suggestions (after search)
         
-        st.markdown('<div class="stats-card">', unsafe_allow_html=True)
-        st.metric("📜 Search History", f"{len(st.session_state.search_history)}")
-        st.markdown('</div>', unsafe_allow_html=True)
+        suggestions_to_show = []
+        suggestion_header = ""
+        suggestion_type = ""
         
-        st.markdown('<div class="stats-card">', unsafe_allow_html=True)
-        st.metric("⭐ Favorites", f"{len(st.session_state.favorites)}")
-        st.markdown('</div>', unsafe_allow_html=True)
-    
+        # 1. If user is actively typing (search_term exists but search wasn't finalized)
+        # Note: We use search_input_live as a proxy for 'typing in progress'
+        if st.session_state.search_term and not final_search_query:
+            # We already ran the dictionary search once for live suggestions in col_main1, re-run for consistency
+            live_suggestions, _, _ = search_dictionary(st.session_state.search_term, direction, enml_data, mlml_data)
+            suggestions_to_show = live_suggestions
+            suggestion_header = "💡 Real-time Autocomplete"
+            suggestion_type = "autocomplete"
+        
+        # 2. If a search was finalized, show Related Words/Suggestions
+        elif final_search_query and related_results:
+            # Extract just the words from related_results (which are tuples of (word, translation))
+            suggestions_to_show = [item[0] for item in related_results]
+            suggestion_header = "🔍 Related Words (Suggested)"
+            suggestion_type = "related"
+
+
+        if suggestions_to_show:
+            st.markdown(f"#### {suggestion_header}")
+            st.markdown('<div class="suggestion-chip-container">', unsafe_allow_html=True)
+            
+            # Display only the top 15 suggestions
+            for i, suggestion in enumerate(suggestions_to_show[:15]):
+                # Use a button styled as a chip to set the search term
+                if st.button(suggestion, key=f"{suggestion_type}_{i}", help=f"Search for {suggestion}"):
+                    st.session_state.search_term = suggestion
+                    st.session_state.search_input_live = suggestion # Update input widget value
+                    st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        elif final_search_query:
+            st.info("No related words found for this query.")
+        else:
+            st.info("Start typing to see real-time suggestions here.")
+
     
     # Auto-refresh for header blinking (every 2 seconds)
     time.sleep(0.1) 

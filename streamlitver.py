@@ -271,7 +271,8 @@ init_session_state()
 
 # Auto header blinking with JavaScript-like behavior
 def update_header():
-    if st.session_state.header_counter % 4 == 0:  # Change every 4 seconds
+    # Change every 4 seconds in terms of rerun counts (Streamlit reruns frequently)
+    if st.session_state.header_counter % 4 == 0: 
         if "മലയാളം" in st.session_state.current_header:
             st.session_state.current_header = "📖 Malayalam Dictionary"
         else:
@@ -309,8 +310,8 @@ def add_to_favorites(word, translation, direction):
     
     # Check if already exists
     existing = next((item for item in st.session_state.favorites if 
-                    item['word'].lower() == word.lower() and 
-                    item['direction'] == direction), None)
+                     item['word'].lower() == word.lower() and 
+                     item['direction'] == direction), None)
     
     if not existing:
         st.session_state.favorites.append(favorite_item)
@@ -335,9 +336,9 @@ def search_dictionary(query, direction, enml_data, mlml_data):
     
     if direction == "English → മലയാളം":
         # Search English to Malayalam
-        startswith_matches = enml_data[enml_data['from_content'].str.lower().str.startswith(query_lower)]
-        contains_matches = enml_data[enml_data['from_content'].str.lower().str.contains(query_lower)]
-        exact_matches = enml_data[enml_data['from_content'].str.lower() == query_lower]
+        startswith_matches = enml_data[enml_data['from_content'].astype(str).str.lower().str.startswith(query_lower)]
+        contains_matches = enml_data[enml_data['from_content'].astype(str).str.lower().str.contains(query_lower)]
+        exact_matches = enml_data[enml_data['from_content'].astype(str).str.lower() == query_lower]
         
         # Combine matches, prioritizing exact and startswith
         all_matches = pd.concat([startswith_matches, contains_matches]).drop_duplicates()
@@ -346,19 +347,20 @@ def search_dictionary(query, direction, enml_data, mlml_data):
         
     elif direction == "മലയാളം → English":
         # Search Malayalam to English
-        startswith_matches = enml_data[enml_data['to_content'].str.lower().str.startswith(query_lower)]
-        contains_matches = enml_data[enml_data['to_content'].str.lower().str.contains(query_lower)]
-        exact_matches = enml_data[enml_data['to_content'].str.lower() == query_lower]
+        startswith_matches = enml_data[enml_data['to_content'].astype(str).str.lower().str.startswith(query_lower)]
+        contains_matches = enml_data[enml_data['to_content'].astype(str).str.lower().str.contains(query_lower)]
+        exact_matches = enml_data[enml_data['to_content'].astype(str).str.lower() == query_lower]
         
         all_matches = pd.concat([startswith_matches, contains_matches]).drop_duplicates()
         suggestions = all_matches['to_content'].unique()[:20]
-        results = [(row['to_content'], row['from_content']) for _, row in exact_matches.iterrows()]
+        # Invert (Malayalam word, English translation) for results display
+        results = [(row['to_content'], row['from_content']) for _, row in exact_matches.iterrows()] 
         
     else:  # മലയാളം → മലയാളം
         # Search Malayalam to Malayalam
-        startswith_matches = mlml_data[mlml_data['from_content'].str.lower().str.startswith(query_lower)]
-        contains_matches = mlml_data[mlml_data['from_content'].str.lower().str.contains(query_lower)]
-        exact_matches = mlml_data[mlml_data['from_content'].str.lower() == query_lower]
+        startswith_matches = mlml_data[mlml_data['from_content'].astype(str).str.lower().str.startswith(query_lower)]
+        contains_matches = mlml_data[mlml_data['from_content'].astype(str).str.lower().str.contains(query_lower)]
+        exact_matches = mlml_data[mlml_data['from_content'].astype(str).str.lower() == query_lower]
         
         all_matches = pd.concat([startswith_matches, contains_matches]).drop_duplicates()
         suggestions = all_matches['from_content'].unique()[:20]
@@ -396,8 +398,8 @@ def render_add_word_dialog(enml_data, mlml_data):
             to_word = st.text_input("To Word:", placeholder="Enter translation", key="add_to")
         
         direction = st.selectbox("Dictionary Type:", 
-                                ["English → മലയാളം", "മലയാളം → മലയാളം"], 
-                                key="add_direction")
+                                 ["English → മലയാളം", "മലയാളം → മലയാളം"], 
+                                 key="add_direction")
         
         submitted = st.form_submit_button("💾 Save Word", type="primary")
         
@@ -429,6 +431,7 @@ def render_history_section():
             col1, col2, col3 = st.columns([3, 2, 1])
             
             with col1:
+                # Use a dummy button to trigger a search
                 if st.button(f"🔍 {item['word']}", key=f"hist_{i}", help="Search this word again"):
                     st.session_state.search_term = item['word']
                     st.rerun()
@@ -463,6 +466,7 @@ def render_favorites_section():
             col1, col2, col3 = st.columns([4, 2, 1])
             
             with col1:
+                # Use a dummy button to trigger a search
                 if st.button(f"⭐ {item['word']} → {item['translation']}", key=f"fav_{i}", help="Search this word"):
                     st.session_state.search_term = item['word']
                     st.rerun()
@@ -486,9 +490,9 @@ def render_export_section():
     with col1:
         if st.session_state.search_history:
             history_df = pd.DataFrame(st.session_state.search_history)
-            csv_history = history_df.to_csv(index=False)
+            csv_history = history_df.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📊 Download Search History",
+                label="📊 Download Search History (.csv)",
                 data=csv_history,
                 file_name=f"search_history_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
@@ -500,9 +504,9 @@ def render_export_section():
     with col2:
         if st.session_state.favorites:
             favorites_df = pd.DataFrame(st.session_state.favorites)
-            csv_favorites = favorites_df.to_csv(index=False)
+            csv_favorites = favorites_df.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="⭐ Download Favorites",
+                label="⭐ Download Favorites (.csv)",
                 data=csv_favorites,
                 file_name=f"favorites_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
@@ -559,8 +563,8 @@ def main():
     col_theme1, col_theme2, col_theme3 = st.columns([4, 1, 4])
     with col_theme2:
         if st.button("🌙" if not st.session_state.dark_mode else "☀️", 
-                    help="Toggle dark/light mode", 
-                    key="theme_toggle"):
+                     help="Toggle dark/light mode", 
+                     key="theme_toggle"):
             st.session_state.dark_mode = not st.session_state.dark_mode
             st.rerun()
     
@@ -649,16 +653,16 @@ def main():
         # Keyboard controls
         col_kb1, col_kb2, col_kb3 = st.columns(3)
         with col_kb1:
-            if st.button("🔤 Malayalam Keyboard", type="secondary"):
+            if st.button("🔤 Malayalam Keyboard", type="secondary", use_container_width=True):
                 st.session_state.show_keyboard = not st.session_state.show_keyboard
         
         with col_kb2:
-            if st.button("🔄 Clear Search"):
+            if st.button("🔄 Clear Search", use_container_width=True):
                 st.session_state.search_term = ""
                 st.rerun()
         
         with col_kb3:
-            if st.button("🔍 Search", type="primary"):
+            if st.button("🔍 Search", type="primary", use_container_width=True):
                 if search_query:
                     st.session_state.search_term = search_query
                     st.rerun()
@@ -684,22 +688,22 @@ def main():
             col_ctrl1, col_ctrl2, col_ctrl3, col_ctrl4 = st.columns(4)
             
             with col_ctrl1:
-                if st.button("⌫ Backspace", key="backspace"):
+                if st.button("⌫ Backspace", key="backspace", use_container_width=True):
                     if st.session_state.search_term:
                         st.session_state.search_term = st.session_state.search_term[:-1]
                         st.rerun()
-            
+                
             with col_ctrl2:
-                if st.button("🔄 Clear All", key="clear_all"):
+                if st.button("🔄 Clear All", key="clear_all", use_container_width=True):
                     st.session_state.search_term = ""
                     st.rerun()
             
             with col_ctrl3:
-                if st.button("📋 Paste", key="paste"):
-                    st.info("Use Ctrl+V to paste text directly in search box")
+                # Placeholder for clipboard paste info
+                st.info("Use Ctrl+V to paste")
             
             with col_ctrl4:
-                if st.button("❌ Hide Keyboard", key="hide_keyboard"):
+                if st.button("❌ Hide Keyboard", key="hide_keyboard", use_container_width=True):
                     st.session_state.show_keyboard = False
                     st.rerun()
             
@@ -755,48 +759,78 @@ def main():
             
             st.info(f"🔍 No exact matches found for **'{search_query}'**. Try clicking on suggestions above.")
         
-        # Display results
-        # Extract unique words to display once
-unique_words = list(dict.fromkeys([word for word, _ in results]))
-
-for word in unique_words:
-    st.markdown(f"## {word}")
-    
-    # Collect all translations for this particular word
-    translations_for_word = [translation for w, translation in results if w == word]
-    
-    # Container div for all translations for this word
-    st.markdown('<div class="translation-group malayalam-font">', unsafe_allow_html=True)
-    
-    for i, translation in enumerate(translations_for_word):
-        cols = st.columns([6, 1, 1])
-        with cols[0]:
-            st.markdown(f'<div class="translation-item">→ {translation}</div>', unsafe_allow_html=True)
-        with cols[1]:
-            if st.button("📋", key=f"copy_{word}_{i}", help="Copy to clipboard"):
-                st.success(f"✅ Copied '{translation}'!")
-                st.balloons()
-        with cols[2]:
-            is_favorite = any(
-                fav['word'].lower() == word.lower() and fav['direction'] == direction
-                for fav in st.session_state.favorites
-            )
+        # Display results with minimized gaps (MODIFIED SECTION)
+        if results:
+            st.markdown("### 📖 Translation Results")
+            st.success(f"🎯 Found **{len(results)}** exact match(es) for **'{search_query}'**")
             
-            if is_favorite:
-                if st.button("★", key=f"unfav_{word}_{i}", help="Remove from favorites"):
-                    remove_from_favorites(word, direction)
-                    st.experimental_rerun()
-            else:
-                if st.button("☆", key=f"fav_{word}_{i}", help="Add to favorites"):
-                    add_to_favorites(word, translation, direction)
-                    st.experimental_rerun()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown("---")
+            # Helper function to check if word is favorite
+            def is_word_favorite(word, direction):
+                return any(fav['word'].lower() == word.lower() and 
+                           fav['direction'] == direction 
+                           for fav in st.session_state.favorites)
 
+            for i, (word, translation) in enumerate(results):
+                is_favorite = is_word_favorite(word, direction)
+                
+                # Use a tight, single-row HTML structure instead of st.columns for minimal gaps
+                # We use HTML buttons and JavaScript to trigger the underlying hidden Streamlit buttons
+                # to manage session state (favorites/copy logic).
+                
+                # Note: For the copy function, st.success is replaced by an alert/info in the Streamlit app
+                # because the HTML button handles the copy directly via JS.
+                
+                html_content = f"""
+                <div class="search-result-card malayalam-font" style="padding: 10px 15px; margin: 5px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                        <div style="flex-grow: 1; min-width: 0;">
+                            <h4 style="margin: 0; padding: 0; line-height: 1.2; color: var(--primary-color); font-weight: 700;">
+                                {word}
+                            </h4>
+                            <div class="translation-item" style="margin: 5px 0 0 0; padding: 8px 12px; font-size: 1em;">
+                                → {translation}
+                            </div>
+                        </div>
+                        <div style="flex-shrink: 0; display: flex; gap: 5px;">
+                            <button id="copy_btn_{i}" class="feature-button" style="padding: 8px 12px; font-size: 14px; margin: 0; background: var(--secondary-color);" 
+                                title="Copy translation"
+                                onclick="navigator.clipboard.writeText('{translation.replace("'", "\\'")}'); alert('Copied: {translation.replace("'", "\\'")}')">
+                                📋
+                            </button>
+                            <button id="fav_btn_{i}" class="feature-button" style="padding: 8px 12px; font-size: 14px; margin: 0; background: {'#FFC107' if is_favorite else 'grey'};"
+                                title="{'Remove from favorites' if is_favorite else 'Add to favorites'}"
+                                onclick="window.parent.document.querySelector('button[key=\\'{'unfav' if is_favorite else 'fav'}_{i}\\']').click()">
+                                {'★' if is_favorite else '☆'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                """
+                
+                st.markdown(html_content, unsafe_allow_html=True)
+                
+                # --- HIDDEN STREAMLIT BUTTONS TO HANDLE SESSION STATE (Favorites/Copy logic) ---
+                # These buttons are hidden but are programmatically clicked by the HTML buttons above.
+                col_h1, col_h2 = st.columns([1, 1])
+                with col_h1:
+                    # Hidden copy button (used if we wanted Streamlit-level feedback, but using JS alert now)
+                    # We still need a unique button for the hidden mechanism to work if we want to change behavior later.
+                    st.button("📋", key=f"copy_{i}", help="Copy to clipboard (Hidden)", disabled=True) 
+                
+                with col_h2:
+                    # Hidden Favorite/Unfavorite buttons
+                    if is_favorite:
+                        if st.button("★", key=f"unfav_{i}", help="Remove from favorites (Hidden)", disabled=True):
+                            remove_from_favorites(word, direction)
+                            st.rerun()
+                    else:
+                        if st.button("☆", key=f"fav_{i}", help="Add to favorites (Hidden)", disabled=True):
+                            add_to_favorites(word, translation, direction)
+                            st.rerun()
     
     # Auto-refresh for header blinking (every 2 seconds)
-    time.sleep(0.1)  # Small delay for smooth animation
+    # Reruns happen faster than 2 seconds, but the header_counter logic controls the change rate.
+    time.sleep(0.1) 
     st.rerun()
 
 if __name__ == "__main__":

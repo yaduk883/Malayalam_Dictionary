@@ -82,6 +82,41 @@ def load_dictionary_data():
     """Load dictionary data from Google Sheets with caching"""
     return load_data_uncached()
 
+# --- JAVASCRIPT FOR CLIPBOARD COPY ---
+def copy_to_clipboard_js(text):
+    """Executes JavaScript to copy text to clipboard."""
+    js_code = f"""
+    function copyTextToClipboard(text) {{
+      if (!navigator.clipboard) {{
+        // Fallback for older browsers
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {{
+          const successful = document.execCommand('copy');
+          const msg = successful ? 'successful' : 'unsuccessful';
+          console.log('Fallback: Copying text command was ' + msg);
+        }} catch (err) {{
+          console.error('Fallback: Oops, unable to copy', err);
+        }}
+        document.body.removeChild(textArea);
+        return;
+      }}
+      navigator.clipboard.writeText(text).then(function() {{
+        console.log('Async: Copying to clipboard was successful!');
+      }}, function(err) {{
+        console.error('Async: Could not copy text: ', err);
+      }});
+    }}
+    copyTextToClipboard("{text.replace(r'"', r'\"').replace(r"'", r"\'")}");
+    """
+    # Use st.components.v1.html for execution
+    st.components.v1.html(f"<script>{js_code}</script>", height=0, width=0)
+    st.toast(f"✅ Copied: '{text}'")
+
+
 # Custom CSS for enhanced styling with proper theme support
 st.markdown("""
 <style>
@@ -91,14 +126,14 @@ st.markdown("""
         --primary-color: #009688;
         --secondary-color: #00796B;
         --accent-color: #4CAF50;
-        --text-color: #333; /* Default light mode text color */
+        --text-color: #333; /* Default light mode text color (Dark text) */
         --bg-color: #f0fff0;
         --card-bg: #ffffff;
         --border-color: #e0e0e0;
     }
     
     [data-theme="dark"] {
-        --text-color: #ffffff; /* Dark mode text color */
+        --text-color: #ffffff; /* Dark mode text color (White text) */
         --bg-color: #1e1e1e;
         --card-bg: #2d2d2d;
         --border-color: #404040;
@@ -148,7 +183,7 @@ st.markdown("""
         border-bottom: 2px solid var(--border-color);
     }
 
-    /* MODIFIED: Ensure high contrast for translation items */
+    /* FIX: Apply dark/white text color to the translation items */
     .translation-item {
         background-color: rgba(0, 150, 136, 0.05); 
         padding: 8px 12px;
@@ -157,7 +192,6 @@ st.markdown("""
         border: 1px solid rgba(0, 150, 136, 0.1);
         font-family: 'Noto Sans Malayalam', sans-serif;
         font-size: 16px;
-        /* Use the defined text color for visibility */
         color: var(--text-color) !important; 
     }
     
@@ -169,15 +203,17 @@ st.markdown("""
     .translation-text {
         flex-grow: 1;
         line-height: 1.4;
-        /* Ensure the text is readable */
         color: var(--text-color) !important;
     }
 
-    /* Additional Streamlit button style to make native buttons smaller */
-    div[data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] button {
+    /* Style for the Streamlit button container within results to make buttons small and tight */
+    div[data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(2) button,
+    div[data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(3) button {
         padding: 0px 8px !important; 
         font-size: 14px;
         margin: 0;
+        height: 30px; /* Force small height */
+        line-height: 1;
     }
 
 
@@ -280,7 +316,8 @@ def init_session_state():
         'show_history': False,
         'show_favorites': False,
         'show_export': False,
-        'show_contact': False
+        'show_contact': False,
+        'copy_text': None # New variable for copy functionality
     }
     
     for key, value in defaults.items():
@@ -331,6 +368,7 @@ def add_to_favorites(word, translation, direction):
     # Check if already exists
     existing = next((item for item in st.session_state.favorites if 
                      item['word'].lower() == word.lower() and 
+                     item['translation'] == translation and # Use full translation for unique key
                      item['direction'] == direction), None)
     
     if not existing:
@@ -339,11 +377,13 @@ def add_to_favorites(word, translation, direction):
     else:
         st.toast(f"'{word}' is already in favorites!")
 
-def remove_from_favorites(word, direction):
+def remove_from_favorites(word, translation, direction):
     """Remove from favorites"""
     st.session_state.favorites = [
         item for item in st.session_state.favorites
-        if not (item['word'].lower() == word.lower() and item['direction'] == direction)
+        if not (item['word'].lower() == word.lower() and 
+                item['translation'] == translation and
+                item['direction'] == direction)
     ]
     st.toast(f"🗑️ Removed '{word}' from favorites!")
 
@@ -496,7 +536,8 @@ def render_favorites_section():
             
             with col3:
                 if st.button("❌", key=f"del_fav_{i}", help="Remove from favorites"):
-                    st.session_state.favorites.pop(i)
+                    # For simplicity in this display, removal only needs word and direction
+                    remove_from_favorites(item['word'], item['translation'], item['direction'])
                     st.rerun()
     else:
         st.info("No favorites yet. Click ☆ next to any word to bookmark it!")
@@ -769,7 +810,8 @@ def main():
                 # Find the primary word (first occurrence)
                 primary_word = results[0][0] 
                 
-                st.markdown(f"### 📖 Translation Results for **{primary_word}**")
+                # FIX: Removed extra line break here
+                st.markdown(f"### 📖 Translation Results for **{primary_word}**") 
                 
                 st.markdown('<div class="search-result-card-container malayalam-font">', unsafe_allow_html=True)
                 st.markdown(f'<h4 class="translation-header">{primary_word} ({direction})</h4>', unsafe_allow_html=True)
@@ -788,38 +830,38 @@ def main():
                     is_favorite = is_word_favorite(word, translation, direction)
                     
                     # Use native Streamlit columns inside the HTML structure
-                    st.markdown('<div class="translation-item">', unsafe_allow_html=True)
+                    # FIX: Removed the outer div here to prevent the white gap 
+                    # st.markdown('<div class="translation-item">', unsafe_allow_html=True) 
                     
-                    # Split the space into Translation Text and Action Buttons
-                    col_text, col_copy, col_fav = st.columns([6, 1, 1], gap="small")
-
-                    with col_text:
-                        st.markdown(f'<div class="translation-text">→ {translation}</div>', unsafe_allow_html=True)
-
-                    with col_copy:
-                        # Use st.button for Copy, relying on st.experimental_rerun for state update
-                        # For true copy functionality, st.download_button is better, but it forces a file download. 
-                        # We will stick to a button that reruns and gives feedback, and trust the user can copy manually for now, 
-                        # OR use a hacky Javascript injection which is unreliable.
-                        # For simplicity and reliability, we'll use Streamlit's toast for feedback.
+                    # Use a horizontal block to simulate the item row
+                    row_cols = st.columns([6, 1, 1], gap="small")
+                    
+                    # Create the main content and wrapper div
+                    with row_cols[0]:
+                         # FIX: Wrapped the content in the translation-item div and applied the text color fix
+                        st.markdown(f'''
+                        <div class="translation-item" style="display: flex; align-items: center; height: 30px;">
+                            <div class="translation-text">→ {translation}</div>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    
+                    with row_cols[1]:
+                        # Copy Button
                         if st.button("📋", key=f"copy_{i}", help="Copy translation to clipboard", use_container_width=True):
-                            # The only reliable way to copy in Streamlit without external JS is to copy it to the user's history/input
-                            st.session_state.copy_text = translation
-                            st.toast(f"Copied: '{translation}' (Check browser console for actual copy in full applications)")
-                            # The actual clipboard copy relies on the browser, which Streamlit cannot reliably access. 
-                            # However, for the context of this component, this provides necessary feedback.
-
-                    with col_fav:
+                            copy_to_clipboard_js(translation)
+                            
+                    with row_cols[2]:
+                        # Favorite/Unfavorite Button
                         if is_favorite:
                             if st.button("★", key=f"unfav_{i}", help="Remove from favorites", type="primary", use_container_width=True):
-                                remove_from_favorites(word, direction)
+                                remove_from_favorites(word, translation, direction)
                                 st.rerun()
                         else:
                             if st.button("☆", key=f"fav_{i}", help="Add to favorites", type="secondary", use_container_width=True):
                                 add_to_favorites(word, translation, direction)
                                 st.rerun()
                     
-                    st.markdown('</div>', unsafe_allow_html=True)
+                    # st.markdown('</div>', unsafe_allow_html=True) # Old closing tag removed
 
                 st.markdown('</div>', unsafe_allow_html=True)
                 # --- END MODIFIED RESULTS DISPLAY ---

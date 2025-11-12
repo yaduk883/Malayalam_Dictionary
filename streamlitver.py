@@ -182,19 +182,16 @@ st.markdown("""
         border-bottom: 2px solid var(--border-color);
     }
 
-    /* New CSS for Exact Matches: white text, dark background */
-    .exact-match-item {
-        background-color: var(--secondary-color) !important; /* Darker background for contrast */
-        padding: 10px 15px;
-        margin: 10px 0;
-        border-radius: 10px;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-    }
-    
-    .exact-match-item .translation-text {
+    /* Styles for the Exact Match Text (Translation Only) */
+    .compact-match-text {
         color: white !important; /* White text as requested */
-        font-weight: 700;
-        font-size: 17px;
+        font-weight: 600;
+        font-size: 16px; /* Slightly reduced font size */
+        background-color: var(--secondary-color); /* Dark background for contrast */
+        padding: 5px 10px; /* Reduced padding */
+        margin: 5px 0;
+        border-radius: 8px;
+        line-height: 1.2;
     }
 
     /* FIX: Apply dark/white text color to the translation items */
@@ -224,10 +221,11 @@ st.markdown("""
     /* Style for the Streamlit button container within results to make buttons small and tight */
     div[data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(2) button,
     div[data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div:nth-child(3) button {
-        padding: 0px 8px !important; 
-        font-size: 14px;
+        padding: 0px 5px !important; /* Even smaller padding */
+        font-size: 12px; /* Smaller font for icons */
         margin: 0;
-        height: 30px; /* Force small height */
+        height: 25px !important; /* Force smaller height */
+        min-height: 25px !important;
         line-height: 1;
     }
 
@@ -844,12 +842,13 @@ def main():
                     for i, (word, translation) in enumerate(exact_results):
                         is_favorite = is_word_favorite(word, translation, direction)
                         
+                        # Use 3 columns for (Translation Text, Copy Button, Star Button)
                         row_cols = st.columns([6, 1, 1], gap="small")
                         
                         with row_cols[0]:
                              st.markdown(f"""
-                            <div class="exact-match-item" style="display: flex; align-items: center;">
-                                <div class="translation-text">→ <b>{word}</b>: {translation}</div>
+                            <div class="compact-match-text">
+                                {translation}
                             </div>
                             """, unsafe_allow_html=True)
                         

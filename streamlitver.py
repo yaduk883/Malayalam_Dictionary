@@ -182,7 +182,7 @@ st.markdown("""
         border-bottom: 2px solid var(--border-color);
     }
 
-    /* FIX: Apply dark/white text color to the translation items */
+    /* New CSS for Exact Matches: white text, dark background */
     .exact-match-item {
         background-color: var(--secondary-color) !important; /* Darker background for contrast */
         padding: 10px 15px;
@@ -197,6 +197,7 @@ st.markdown("""
         font-size: 17px;
     }
 
+    /* FIX: Apply dark/white text color to the translation items */
     .translation-item {
         background-color: rgba(0, 150, 136, 0.05); 
         padding: 8px 12px;
@@ -314,6 +315,7 @@ def init_session_state():
         'show_keyboard': False,
         'search_term': "",
         'header_counter': 0,
+        'direction_radio': "English → മലയാളം", # FIX: Default value for st.radio
         'show_add_word': False,
         'show_history': False,
         'show_favorites': False,
@@ -695,6 +697,9 @@ def main():
     
     st.markdown("---")
     
+    # FIX: Get direction from session state before columns are defined (resolves UnboundLocalError)
+    direction = st.session_state.get("direction_radio", "English → മലയാളം")
+    
     # Search is performed if search_term is not empty
     final_search_query = st.session_state.search_term
     exact_results = []
@@ -713,14 +718,15 @@ def main():
             add_to_history(final_search_query, direction)
 
     # Main search interface
+    # New layout: Left (4) for Search/Exact Matches, Right (1) for Suggestions/Stats
     col_main1, col_main2 = st.columns([4, 1]) 
     
     with col_main1:
         st.markdown('<div class="malayalam-font">', unsafe_allow_html=True)
         st.markdown("### 🔍 തിരയുക (Search)")
         
-        # Search direction
-        direction = st.radio(
+        # Search direction - Value is stored in session state via key="direction_radio"
+        st.radio(
             "Choose Translation Direction:",
             ["English → മലയാളം", "മലയാളം → English", "മലയാളം → മലയാളം"],
             horizontal=True,
@@ -729,12 +735,11 @@ def main():
         )
         
         # Search input with autocompletion/type prediction
-        # We use a non-rerun callback for a lighter-weight type prediction update
         def update_search_term():
              # Only update session state if the text input was the source of the change
             st.session_state.search_term = st.session_state.search_input_live
         
-        search_query = st.text_input(
+        st.text_input(
             "Enter word to search:",
             value=st.session_state.search_term,
             placeholder="Type a word here... / ഇവിടെ ഒരു വാക്ക് ടൈപ്പ് ചെയ്യുക...",
@@ -872,7 +877,7 @@ def main():
     with col_main2:
         st.markdown("### 💡 Suggestions & Stats")
         
-        # 4. HIDE AND UNHIDE STATISTICS WITH DROP DOWN MENU
+        # HIDE AND UNHIDE STATISTICS WITH DROP DOWN MENU
         with st.expander("📊 Show Statistics", expanded=False):
             st.markdown("---")
             st.markdown('<div class="stats-card">', unsafe_allow_html=True)
@@ -895,24 +900,19 @@ def main():
 
         # --- Suggestions Display Logic (Right Column) ---
         
-        # Logic to decide what to show in the Suggestions area:
-        # 1. Real-time Autocomplete (while typing)
-        # 2. Related Words/Suggestions (after search)
-        
         suggestions_to_show = []
         suggestion_header = ""
         suggestion_type = ""
         
-        # 1. If user is actively typing (search_term exists but search wasn't finalized)
-        # Note: We use search_input_live as a proxy for 'typing in progress'
+        # 1. Real-time Autocomplete (while typing - search_term exists but final_search_query hasn't been officially run by a button press, or the input changed)
         if st.session_state.search_term and not final_search_query:
-            # We already ran the dictionary search once for live suggestions in col_main1, re-run for consistency
+            # We must re-run search_dictionary here to get the real-time suggestions based on the live input
             live_suggestions, _, _ = search_dictionary(st.session_state.search_term, direction, enml_data, mlml_data)
             suggestions_to_show = live_suggestions
             suggestion_header = "💡 Real-time Autocomplete"
             suggestion_type = "autocomplete"
         
-        # 2. If a search was finalized, show Related Words/Suggestions
+        # 2. Related Words/Suggestions (after a search is complete)
         elif final_search_query and related_results:
             # Extract just the words from related_results (which are tuples of (word, translation))
             suggestions_to_show = [item[0] for item in related_results]
@@ -927,6 +927,7 @@ def main():
             # Display only the top 15 suggestions
             for i, suggestion in enumerate(suggestions_to_show[:15]):
                 # Use a button styled as a chip to set the search term
+                # Clicking a suggestion updates the search input and triggers a full search
                 if st.button(suggestion, key=f"{suggestion_type}_{i}", help=f"Search for {suggestion}"):
                     st.session_state.search_term = suggestion
                     st.session_state.search_input_live = suggestion # Update input widget value

@@ -203,7 +203,8 @@ st.markdown("""
     .translation-text {
         flex-grow: 1;
         line-height: 1.4;
-        color: var(--text-color) !important;
+        color: white !important;  /* Always white text */
+        font-weight: 600;
     }
 
     /* Style for the Streamlit button container within results to make buttons small and tight */

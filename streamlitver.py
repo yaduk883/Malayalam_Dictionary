@@ -129,7 +129,8 @@ st.markdown("""
         to { box-shadow: 0 8px 24px rgba(0,150,136,0.6); }
     }
     
-    .search-result-card {
+    /* MODIFIED: Single card for all results */
+    .search-result-card-container {
         background: linear-gradient(135deg, var(--card-bg) 0%, var(--bg-color) 100%);
         padding: 20px;
         border-radius: 15px;
@@ -138,27 +139,49 @@ st.markdown("""
         box-shadow: 0 6px 15px rgba(0,0,0,0.1);
         transition: all 0.3s ease;
     }
-    
-    .search-result-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+
+    .translation-header {
+        color: var(--primary-color);
+        font-weight: 700;
+        margin-top: 0;
+        margin-bottom: 10px;
+        padding-bottom: 5px;
+        border-bottom: 2px solid var(--border-color);
     }
-    
+
+    /* MODIFIED: Compact and high contrast translation items */
     .translation-item {
-        background-color: rgba(0, 150, 136, 0.1);
-        padding: 12px 16px;
-        margin: 8px 0;
-        border-radius: 10px;
+        /* Adjusted background for better visibility */
+        background-color: rgba(0, 150, 136, 0.05); 
+        padding: 8px 12px;
+        margin: 5px 0;
+        border-radius: 8px;
         cursor: pointer;
         transition: all 0.3s;
-        border: 1px solid rgba(0, 150, 136, 0.2);
+        border: 1px solid rgba(0, 150, 136, 0.1);
         font-family: 'Noto Sans Malayalam', sans-serif;
         font-size: 16px;
+        display: flex; /* Use flex for alignment */
+        justify-content: space-between;
+        align-items: center;
+        /* Ensure text color is dark/readable */
+        color: var(--text-color); 
     }
     
     .translation-item:hover {
         background-color: rgba(0, 150, 136, 0.2);
-        transform: translateX(5px);
+        transform: translateX(3px);
+    }
+
+    .translation-text {
+        flex-grow: 1;
+        line-height: 1.4;
+    }
+
+    .translation-actions {
+        flex-shrink: 0;
+        display: flex;
+        gap: 5px;
     }
     
     .malayalam-keyboard {
@@ -627,7 +650,6 @@ def main():
     st.markdown("---")
     
     # Main search interface
-    # Modified column ratio from [3, 1] to [4, 1] to make the statistics tab smaller
     col_main1, col_main2 = st.columns([4, 1]) 
     
     with col_main1:
@@ -712,8 +734,6 @@ def main():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # --- NEW LOCATION FOR TRANSLATION RESULTS (Close to search tab) ---
-        
         # Update search term if keyboard was used
         if st.session_state.search_term and st.session_state.search_term != search_query:
             search_query = st.session_state.search_term
@@ -742,10 +762,18 @@ def main():
                 
                 st.info(f"🔍 No exact matches found for **'{search_query}'**. Try clicking on suggestions above.")
             
-            # Display results with minimized gaps
+            # --- MODIFIED: CONSOLIDATED RESULTS DISPLAY ---
             if results:
-                st.markdown("### 📖 Translation Results")
-                st.success(f"🎯 Found **{len(results)}** exact match(es) for **'{search_query}'**")
+                # Find the primary word (first occurrence)
+                primary_word = results[0][0] 
+                
+                st.markdown(f"### 📖 Translation Results for **{primary_word}**")
+                
+                st.markdown('<div class="search-result-card-container malayalam-font">', unsafe_allow_html=True)
+                st.markdown(f'<h4 class="translation-header">{primary_word} ({direction.split(" → ")[0]} → {direction.split(" → ")[1]})</h4>', unsafe_allow_html=True)
+
+                st.success(f"🎯 Found **{len(results)}** match(es) for **'{search_query}'**")
+
                 
                 # Helper function to check if word is favorite
                 def is_word_favorite(word, direction):
@@ -756,29 +784,23 @@ def main():
                 for i, (word, translation) in enumerate(results):
                     is_favorite = is_word_favorite(word, direction)
                     
+                    # HTML Structure for a compact list item
                     html_content = f"""
-                    <div class="search-result-card malayalam-font" style="padding: 10px 15px; margin: 5px 0;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-                            <div style="flex-grow: 1; min-width: 0;">
-                                <h4 style="margin: 0; padding: 0; line-height: 1.2; color: var(--primary-color); font-weight: 700;">
-                                    {word}
-                                </h4>
-                                <div class="translation-item" style="margin: 5px 0 0 0; padding: 8px 12px; font-size: 1em;">
-                                    → {translation}
-                                </div>
-                            </div>
-                            <div style="flex-shrink: 0; display: flex; gap: 5px;">
-                                <button id="copy_btn_{i}" class="feature-button" style="padding: 8px 12px; font-size: 14px; margin: 0; background: var(--secondary-color);" 
-                                    title="Copy translation"
-                                    onclick="navigator.clipboard.writeText('{translation.replace("'", "\\'")}'); alert('Copied: {translation.replace("'", "\\'")}')">
-                                    📋
-                                </button>
-                                <button id="fav_btn_{i}" class="feature-button" style="padding: 8px 12px; font-size: 14px; margin: 0; background: {'#FFC107' if is_favorite else 'grey'};"
-                                    title="{'Remove from favorites' if is_favorite else 'Add to favorites'}"
-                                    onclick="window.parent.document.querySelector('button[key=\\'{'unfav' if is_favorite else 'fav'}_{i}\\']').click()">
-                                    {'★' if is_favorite else '☆'}
-                                </button>
-                            </div>
+                    <div class="translation-item">
+                        <div class="translation-text">
+                            → {translation}
+                        </div>
+                        <div class="translation-actions">
+                            <button id="copy_btn_{i}" class="feature-button" style="padding: 5px 8px; font-size: 12px; margin: 0; background: var(--secondary-color);" 
+                                title="Copy translation"
+                                onclick="navigator.clipboard.writeText('{translation.replace("'", "\\'")}'); alert('Copied: {translation.replace("'", "\\'")}')">
+                                📋
+                            </button>
+                            <button id="fav_btn_{i}" class="feature-button" style="padding: 5px 8px; font-size: 12px; margin: 0; background: {'#FFC107' if is_favorite else 'grey'};"
+                                title="{'Remove from favorites' if is_favorite else 'Add to favorites'}"
+                                onclick="window.parent.document.querySelector('button[key=\\'{'unfav' if is_favorite else 'fav'}_{i}\\']').click()">
+                                {'★' if is_favorite else '☆'}
+                            </button>
                         </div>
                     </div>
                     """
@@ -786,21 +808,19 @@ def main():
                     st.markdown(html_content, unsafe_allow_html=True)
                     
                     # --- HIDDEN STREAMLIT BUTTONS TO HANDLE SESSION STATE (Favorites/Copy logic) ---
-                    col_h1, col_h2 = st.columns([1, 1])
-                    with col_h1:
-                        # Hidden copy button 
-                        st.button("📋", key=f"copy_{i}", help="Copy to clipboard (Hidden)", disabled=True) 
-                    
-                    with col_h2:
-                        # Hidden Favorite/Unfavorite buttons
-                        if is_favorite:
-                            if st.button("★", key=f"unfav_{i}", help="Remove from favorites (Hidden)", disabled=True):
-                                remove_from_favorites(word, direction)
-                                st.rerun()
-                        else:
-                            if st.button("☆", key=f"fav_{i}", help="Add to favorites (Hidden)", disabled=True):
-                                add_to_favorites(word, translation, direction)
-                                st.rerun()
+                    # These are kept minimal to avoid visual space, just to trigger session state change
+                    st.button("", key=f"copy_{i}", help="Copy to clipboard (Hidden)", disabled=True, use_container_width=True)
+                    if is_favorite:
+                        if st.button("★", key=f"unfav_{i}", help="Remove from favorites (Hidden)", disabled=True, use_container_width=True):
+                            remove_from_favorites(word, direction)
+                            st.rerun()
+                    else:
+                        if st.button("☆", key=f"fav_{i}", help="Add to favorites (Hidden)", disabled=True, use_container_width=True):
+                            add_to_favorites(word, translation, direction)
+                            st.rerun()
+
+                st.markdown('</div>', unsafe_allow_html=True)
+                # --- END MODIFIED RESULTS DISPLAY ---
 
     # Statistics Tab (Right Column)
     with col_main2:

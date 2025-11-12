@@ -757,45 +757,45 @@ def main():
         
         # Display results
         if results:
-    st.markdown("### 📖 Translation Results")
-    st.success(f"🎯 Found **{len(results)}** exact match(es) for **'{search_query}'**")
+            st.markdown("### 📖 Translation Results")
+            st.success(f"🎯 Found **{len(results)}** exact match(es) for **'{search_query}'**")
 
-    # Extract unique word to display once
-    unique_words = list(dict.fromkeys([word for word, _ in results]))
-    
-    for word in unique_words:
-        st.markdown(f"## {word}")
-        
-        # Collect all translations for this particular word
-        translations_for_word = [translation for w, translation in results if w == word]
-        
-        # Container div for all translations for this word
-        st.markdown('<div class="translation-group malayalam-font">', unsafe_allow_html=True)
-        
-        for i, translation in enumerate(translations_for_word):
-            cols = st.columns([6, 1, 1])
-            with cols[0]:
+            # Extract unique word to display once
+            unique_words = list(dict.fromkeys([word for word, _ in results]))
+
+            for word in unique_words:
+            st.markdown(f"## {word}")
+
+            # Collect all translations for this particular word
+            translations_for_word = [translation for w, translation in results if w == word]
+
+            # Container div for all translations for this word
+            st.markdown('<div class="translation-group malayalam-font">', unsafe_allow_html=True)
+
+            for i, translation in enumerate(translations_for_word):
+                cols = st.columns([6, 1, 1])
+                with cols[0]:
                 st.markdown(f'<div class="translation-item">→ {translation}</div>', unsafe_allow_html=True)
-            with cols[1]:
+                with cols[1]:
                 if st.button("📋", key=f"copy_{word}_{i}", help="Copy to clipboard"):
                     st.success(f"✅ Copied '{translation}'!")
                     st.balloons()
-            with cols[2]:
+                with cols[2]:
                 is_favorite = any(fav['word'].lower() == word.lower() and
-                                fav['direction'] == direction
-                                for fav in st.session_state.favorites)
-                
+                          fav['direction'] == direction
+                          for fav in st.session_state.favorites)
+
                 if is_favorite:
                     if st.button("★", key=f"unfav_{word}_{i}", help="Remove from favorites"):
-                        remove_from_favorites(word, direction)
-                        st.experimental_rerun()
+                    remove_from_favorites(word, direction)
+                    st.rerun()
                 else:
                     if st.button("☆", key=f"fav_{word}_{i}", help="Add to favorites"):
-                        add_to_favorites(word, translation, direction)
-                        st.experimental_rerun()
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown("---")
+                    add_to_favorites(word, translation, direction)
+                    st.rerun()
+
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("---")
 
     
     # Auto-refresh for header blinking (every 2 seconds)

@@ -631,7 +631,7 @@ def main():
             st.rerun()
     
     # Feature buttons row
-    st.markdown("### 🎛️ Features")
+    st.markdown("### ")
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:

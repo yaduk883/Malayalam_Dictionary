@@ -627,7 +627,8 @@ def main():
     st.markdown("---")
     
     # Main search interface
-    col_main1, col_main2 = st.columns([3, 1])
+    # Modified column ratio from [3, 1] to [4, 1] to make the statistics tab smaller
+    col_main1, col_main2 = st.columns([4, 1]) 
     
     with col_main1:
         st.markdown('<div class="malayalam-font">', unsafe_allow_html=True)
@@ -710,7 +711,98 @@ def main():
             st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown('</div>', unsafe_allow_html=True)
-    
+        
+        # --- NEW LOCATION FOR TRANSLATION RESULTS (Close to search tab) ---
+        
+        # Update search term if keyboard was used
+        if st.session_state.search_term and st.session_state.search_term != search_query:
+            search_query = st.session_state.search_term
+        
+        # Perform Search
+        if search_query:
+            suggestions, results = search_dictionary(search_query, direction, enml_data, mlml_data)
+            
+            # Add to history if we found results
+            if results:
+                add_to_history(search_query, direction)
+            
+            # Display suggestions
+            if suggestions and not results:
+                st.markdown("### 💡 Suggestions")
+                
+                # Create suggestion buttons
+                num_cols = min(len(suggestions[:12]), 4)
+                suggestion_cols = st.columns(num_cols)
+                
+                for i, suggestion in enumerate(suggestions[:12]):
+                    with suggestion_cols[i % num_cols]:
+                        if st.button(suggestion, key=f"sugg_{i}", help=f"Search for {suggestion}"):
+                            st.session_state.search_term = suggestion
+                            st.rerun()
+                
+                st.info(f"🔍 No exact matches found for **'{search_query}'**. Try clicking on suggestions above.")
+            
+            # Display results with minimized gaps
+            if results:
+                st.markdown("### 📖 Translation Results")
+                st.success(f"🎯 Found **{len(results)}** exact match(es) for **'{search_query}'**")
+                
+                # Helper function to check if word is favorite
+                def is_word_favorite(word, direction):
+                    return any(fav['word'].lower() == word.lower() and 
+                               fav['direction'] == direction 
+                               for fav in st.session_state.favorites)
+
+                for i, (word, translation) in enumerate(results):
+                    is_favorite = is_word_favorite(word, direction)
+                    
+                    html_content = f"""
+                    <div class="search-result-card malayalam-font" style="padding: 10px 15px; margin: 5px 0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                            <div style="flex-grow: 1; min-width: 0;">
+                                <h4 style="margin: 0; padding: 0; line-height: 1.2; color: var(--primary-color); font-weight: 700;">
+                                    {word}
+                                </h4>
+                                <div class="translation-item" style="margin: 5px 0 0 0; padding: 8px 12px; font-size: 1em;">
+                                    → {translation}
+                                </div>
+                            </div>
+                            <div style="flex-shrink: 0; display: flex; gap: 5px;">
+                                <button id="copy_btn_{i}" class="feature-button" style="padding: 8px 12px; font-size: 14px; margin: 0; background: var(--secondary-color);" 
+                                    title="Copy translation"
+                                    onclick="navigator.clipboard.writeText('{translation.replace("'", "\\'")}'); alert('Copied: {translation.replace("'", "\\'")}')">
+                                    📋
+                                </button>
+                                <button id="fav_btn_{i}" class="feature-button" style="padding: 8px 12px; font-size: 14px; margin: 0; background: {'#FFC107' if is_favorite else 'grey'};"
+                                    title="{'Remove from favorites' if is_favorite else 'Add to favorites'}"
+                                    onclick="window.parent.document.querySelector('button[key=\\'{'unfav' if is_favorite else 'fav'}_{i}\\']').click()">
+                                    {'★' if is_favorite else '☆'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    """
+                    
+                    st.markdown(html_content, unsafe_allow_html=True)
+                    
+                    # --- HIDDEN STREAMLIT BUTTONS TO HANDLE SESSION STATE (Favorites/Copy logic) ---
+                    col_h1, col_h2 = st.columns([1, 1])
+                    with col_h1:
+                        # Hidden copy button 
+                        st.button("📋", key=f"copy_{i}", help="Copy to clipboard (Hidden)", disabled=True) 
+                    
+                    with col_h2:
+                        # Hidden Favorite/Unfavorite buttons
+                        if is_favorite:
+                            if st.button("★", key=f"unfav_{i}", help="Remove from favorites (Hidden)", disabled=True):
+                                remove_from_favorites(word, direction)
+                                st.rerun()
+                        else:
+                            if st.button("☆", key=f"fav_{i}", help="Add to favorites (Hidden)", disabled=True):
+                                add_to_favorites(word, translation, direction)
+                                st.rerun()
+
+    # Statistics Tab (Right Column)
     with col_main2:
         st.markdown("### 📊 Statistics")
         
@@ -731,105 +823,8 @@ def main():
         st.metric("⭐ Favorites", f"{len(st.session_state.favorites)}")
         st.markdown('</div>', unsafe_allow_html=True)
     
-    # Update search term if keyboard was used
-    if st.session_state.search_term and st.session_state.search_term != search_query:
-        search_query = st.session_state.search_term
-    
-    # Perform Search
-    if search_query:
-        suggestions, results = search_dictionary(search_query, direction, enml_data, mlml_data)
-        
-        # Add to history if we found results
-        if results:
-            add_to_history(search_query, direction)
-        
-        # Display suggestions
-        if suggestions and not results:
-            st.markdown("### 💡 Suggestions")
-            
-            # Create suggestion buttons
-            num_cols = min(len(suggestions[:12]), 4)
-            suggestion_cols = st.columns(num_cols)
-            
-            for i, suggestion in enumerate(suggestions[:12]):
-                with suggestion_cols[i % num_cols]:
-                    if st.button(suggestion, key=f"sugg_{i}", help=f"Search for {suggestion}"):
-                        st.session_state.search_term = suggestion
-                        st.rerun()
-            
-            st.info(f"🔍 No exact matches found for **'{search_query}'**. Try clicking on suggestions above.")
-        
-        # Display results with minimized gaps (MODIFIED SECTION)
-        if results:
-            st.markdown("### 📖 Translation Results")
-            st.success(f"🎯 Found **{len(results)}** exact match(es) for **'{search_query}'**")
-            
-            # Helper function to check if word is favorite
-            def is_word_favorite(word, direction):
-                return any(fav['word'].lower() == word.lower() and 
-                           fav['direction'] == direction 
-                           for fav in st.session_state.favorites)
-
-            for i, (word, translation) in enumerate(results):
-                is_favorite = is_word_favorite(word, direction)
-                
-                # Use a tight, single-row HTML structure instead of st.columns for minimal gaps
-                # We use HTML buttons and JavaScript to trigger the underlying hidden Streamlit buttons
-                # to manage session state (favorites/copy logic).
-                
-                # Note: For the copy function, st.success is replaced by an alert/info in the Streamlit app
-                # because the HTML button handles the copy directly via JS.
-                
-                html_content = f"""
-                <div class="search-result-card malayalam-font" style="padding: 10px 15px; margin: 5px 0;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-                        <div style="flex-grow: 1; min-width: 0;">
-                            <h4 style="margin: 0; padding: 0; line-height: 1.2; color: var(--primary-color); font-weight: 700;">
-                                {word}
-                            </h4>
-                            <div class="translation-item" style="margin: 5px 0 0 0; padding: 8px 12px; font-size: 1em;">
-                                → {translation}
-                            </div>
-                        </div>
-                        <div style="flex-shrink: 0; display: flex; gap: 5px;">
-                            <button id="copy_btn_{i}" class="feature-button" style="padding: 8px 12px; font-size: 14px; margin: 0; background: var(--secondary-color);" 
-                                title="Copy translation"
-                                onclick="navigator.clipboard.writeText('{translation.replace("'", "\\'")}'); alert('Copied: {translation.replace("'", "\\'")}')">
-                                📋
-                            </button>
-                            <button id="fav_btn_{i}" class="feature-button" style="padding: 8px 12px; font-size: 14px; margin: 0; background: {'#FFC107' if is_favorite else 'grey'};"
-                                title="{'Remove from favorites' if is_favorite else 'Add to favorites'}"
-                                onclick="window.parent.document.querySelector('button[key=\\'{'unfav' if is_favorite else 'fav'}_{i}\\']').click()">
-                                {'★' if is_favorite else '☆'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                """
-                
-                st.markdown(html_content, unsafe_allow_html=True)
-                
-                # --- HIDDEN STREAMLIT BUTTONS TO HANDLE SESSION STATE (Favorites/Copy logic) ---
-                # These buttons are hidden but are programmatically clicked by the HTML buttons above.
-                col_h1, col_h2 = st.columns([1, 1])
-                with col_h1:
-                    # Hidden copy button (used if we wanted Streamlit-level feedback, but using JS alert now)
-                    # We still need a unique button for the hidden mechanism to work if we want to change behavior later.
-                    st.button("📋", key=f"copy_{i}", help="Copy to clipboard (Hidden)", disabled=True) 
-                
-                with col_h2:
-                    # Hidden Favorite/Unfavorite buttons
-                    if is_favorite:
-                        if st.button("★", key=f"unfav_{i}", help="Remove from favorites (Hidden)", disabled=True):
-                            remove_from_favorites(word, direction)
-                            st.rerun()
-                    else:
-                        if st.button("☆", key=f"fav_{i}", help="Add to favorites (Hidden)", disabled=True):
-                            add_to_favorites(word, translation, direction)
-                            st.rerun()
     
     # Auto-refresh for header blinking (every 2 seconds)
-    # Reruns happen faster than 2 seconds, but the header_counter logic controls the change rate.
     time.sleep(0.1) 
     st.rerun()
 

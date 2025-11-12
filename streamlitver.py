@@ -21,11 +21,13 @@ st.set_page_config(
 try:
     ENML_SHEET_ID = st.secrets["ENML_SHEET_ID"]
 except Exception:
-    ENML_SHEET_ID = "1vujnZVEBTGzsRctZ5rhevnsqdEPMlfdS"
+    # FALLBACK ID - Use the actual ID if the app is not deployed with secrets
+    ENML_SHEET_ID = "1vujnZVEBTGzsRctZ5rhevnsqdEPMlfdS" 
 
 try:
     MLML_SHEET_ID = st.secrets["MLML_SHEET_ID"]
 except Exception:
+    # FALLBACK ID - Use the actual ID if the app is not deployed with secrets
     MLML_SHEET_ID = "1UW8H2Kma8TNoREZ5ohnC1lV87laotTGW"
 
 # Local cache
@@ -49,13 +51,17 @@ def download_sheet_as_xlsx(sheet_id: str, target_path: Path):
     target_path.write_bytes(resp.content)
 
 def load_data_uncached():
-    download_sheet_as_xlsx(ENML_SHEET_ID, ENML_CACHE)
-    download_sheet_as_xlsx(MLML_SHEET_ID, MLML_CACHE)
+    # Only download if not present
+    if not ENML_CACHE.exists():
+        download_sheet_as_xlsx(ENML_SHEET_ID, ENML_CACHE)
+    if not MLML_CACHE.exists():
+        download_sheet_as_xlsx(MLML_SHEET_ID, MLML_CACHE)
 
     enml = pd.read_excel(ENML_CACHE)
     mlml = pd.read_excel(MLML_CACHE)
 
     for df, name in [(enml, "English-Malayalam"), (mlml, "Malayalam-Malayalam")]:
+        # Note: Assuming 'from_content' and 'to_content' are the standard column names
         if "from_content" not in df.columns or "to_content" not in df.columns:
             st.error(f"Sheet '{name}' must have columns 'from_content' and 'to_content'.")
             raise ValueError(f"Missing required columns in {name} sheet")
@@ -203,7 +209,7 @@ st.markdown("""
     .translation-text {
         flex-grow: 1;
         line-height: 1.4;
-        color: white !important;  /* Always white text */
+        color: var(--text-color) !important;  /* Use theme text color */
         font-weight: 600;
     }
 
@@ -217,6 +223,34 @@ st.markdown("""
         line-height: 1;
     }
 
+    /* Style for the suggestion chips inside the search area */
+    .suggestion-chip-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+        margin-bottom: 10px;
+    }
+    
+    .suggestion-chip {
+        display: inline-block;
+        background: linear-gradient(135deg, #007ACC 0%, #005a9e 100%);
+        color: white !important;
+        padding: 8px 15px;
+        border-radius: 20px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.3s;
+        box-shadow: 0 2px 8px rgba(0,122,204,0.3);
+        font-family: 'Noto Sans Malayalam', sans-serif;
+        border: none; /* Important for button elements */
+    }
+    
+    .suggestion-chip:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,122,204,0.5);
+    }
+
 
     .malayalam-keyboard {
         background: linear-gradient(135deg, var(--card-bg) 0%, var(--bg-color) 100%);
@@ -225,25 +259,6 @@ st.markdown("""
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         margin: 20px 0;
         border: 2px solid var(--border-color);
-    }
-    
-    .suggestion-chip {
-        display: inline-block;
-        background: linear-gradient(135deg, #007ACC 0%, #005a9e 100%);
-        color: white;
-        padding: 8px 15px;
-        margin: 5px;
-        border-radius: 20px;
-        font-size: 14px;
-        cursor: pointer;
-        transition: all 0.3s;
-        box-shadow: 0 2px 8px rgba(0,122,204,0.3);
-        font-family: 'Noto Sans Malayalam', sans-serif;
-    }
-    
-    .suggestion-chip:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0,122,204,0.5);
     }
     
     .stats-card {
@@ -318,7 +333,7 @@ def init_session_state():
         'show_favorites': False,
         'show_export': False,
         'show_contact': False,
-        'copy_text': None # New variable for copy functionality
+        'copy_text': None 
     }
     
     for key, value in defaults.items():
@@ -388,46 +403,60 @@ def remove_from_favorites(word, translation, direction):
     ]
     st.toast(f"🗑️ Removed '{word}' from favorites!")
 
+
 def search_dictionary(query, direction, enml_data, mlml_data):
-    """Search dictionary based on direction with enhanced matching"""
+    """
+    Search dictionary based on direction with enhanced matching.
+    Returns: (suggestions: list, exact_matches: list, related_matches: list)
+    """
     if not query.strip():
-        return [], []
+        return [], [], []
     
     query_lower = query.strip().lower()
     
     if direction == "English → മലയാളം":
-        # Search English to Malayalam
-        startswith_matches = enml_data[enml_data['from_content'].astype(str).str.lower().str.startswith(query_lower)]
-        contains_matches = enml_data[enml_data['from_content'].astype(str).str.lower().str.contains(query_lower)]
-        exact_matches = enml_data[enml_data['from_content'].astype(str).str.lower() == query_lower]
-        
-        # Combine matches, prioritizing exact and startswith
-        all_matches = pd.concat([startswith_matches, contains_matches]).drop_duplicates()
-        suggestions = all_matches['from_content'].unique()[:20]
-        results = [(row['from_content'], row['to_content']) for _, row in exact_matches.iterrows()]
+        df = enml_data
+        from_col, to_col = 'from_content', 'to_content'
         
     elif direction == "മലയാളം → English":
-        # Search Malayalam to English
-        startswith_matches = enml_data[enml_data['to_content'].astype(str).str.lower().str.startswith(query_lower)]
-        contains_matches = enml_data[enml_data['to_content'].astype(str).str.lower().str.contains(query_lower)]
-        exact_matches = enml_data[enml_data['to_content'].astype(str).str.lower() == query_lower]
-        
-        all_matches = pd.concat([startswith_matches, contains_matches]).drop_duplicates()
-        suggestions = all_matches['to_content'].unique()[:20]
-        # Invert (Malayalam word, English translation) for results display
-        results = [(row['to_content'], row['from_content']) for _, row in exact_matches.iterrows()] 
+        df = enml_data
+        from_col, to_col = 'to_content', 'from_content' # Invert for search
         
     else:  # മലയാളം → മലയാളം
-        # Search Malayalam to Malayalam
-        startswith_matches = mlml_data[mlml_data['from_content'].astype(str).str.lower().str.startswith(query_lower)]
-        contains_matches = mlml_data[mlml_data['from_content'].astype(str).str.lower().str.contains(query_lower)]
-        exact_matches = mlml_data[mlml_data['from_content'].astype(str).str.lower() == query_lower]
-        
-        all_matches = pd.concat([startswith_matches, contains_matches]).drop_duplicates()
-        suggestions = all_matches['from_content'].unique()[:20]
-        results = [(row['from_content'], row['to_content']) for _, row in exact_matches.iterrows()]
+        df = mlml_data
+        from_col, to_col = 'from_content', 'to_content'
     
-    return list(suggestions), results
+    # --- Exact Matches ---
+    exact_matches_df = df[df[from_col].astype(str).str.lower() == query_lower]
+    
+    # --- Related/Suggested Matches ---
+    # Words that start with the query
+    startswith_matches_df = df[
+        (df[from_col].astype(str).str.lower().str.startswith(query_lower)) &
+        (df[from_col].astype(str).str.lower() != query_lower)
+    ]
+    
+    # Words that contain the query (only if not an exact match or startswith)
+    contains_matches_df = df[
+        (df[from_col].astype(str).str.lower().str.contains(query_lower)) &
+        (~df[from_col].astype(str).str.lower().str.startswith(query_lower)) &
+        (df[from_col].astype(str).str.lower() != query_lower)
+    ]
+    
+    # Combine related matches, prioritize 'startswith'
+    related_matches_df = pd.concat([startswith_matches_df, contains_matches_df]).drop_duplicates(subset=[from_col])
+    
+    # --- Autocomplete/Suggestion List (from 'from_content' column for search bar) ---
+    all_matched_words = pd.concat([exact_matches_df, related_matches_df])
+    # Use the original content column for suggestions
+    suggestions = all_matched_words[from_col].unique()[:20] 
+
+    # Prepare final results format: [(search_word, translation)]
+    exact_results = [(row[from_col], row[to_col]) for _, row in exact_matches_df.iterrows()]
+    related_results = [(row[from_col], row[to_col]) for _, row in related_matches_df.iterrows()]
+    
+    return list(suggestions), exact_results, related_results
+
 
 # Malayalam Keyboard Layout
 malayalam_layout = [
@@ -624,11 +653,12 @@ def main():
     # Theme toggle button
     col_theme1, col_theme2, col_theme3 = st.columns([4, 1, 4])
     with col_theme2:
+        # Use an empty container to hold a button that triggers a rerun to apply theme
         if st.button("🌙" if not st.session_state.dark_mode else "☀️", 
                      help="Toggle dark/light mode", 
                      key="theme_toggle"):
             st.session_state.dark_mode = not st.session_state.dark_mode
-            st.rerun()
+            # Theme change is visual, no immediate rerun needed by design, but we keep it for consistency
     
     # Feature buttons row
     st.markdown("### ")
@@ -704,13 +734,19 @@ def main():
             help="Select the direction for translation"
         )
         
-        # Search input
+        # Search input with autocompletion/type prediction
+        # We use a non-rerun callback for a lighter-weight type prediction update
+        def update_search_term():
+             # Only update session state if the text input was the source of the change
+            st.session_state.search_term = st.session_state.search_input_live
+        
         search_query = st.text_input(
             "Enter word to search:",
             value=st.session_state.search_term,
             placeholder="Type a word here... / ഇവിടെ ഒരു വാക്ക് ടൈപ്പ് ചെയ്യുക...",
-            key="search_input",
-            help="Start typing to see suggestions"
+            key="search_input_live", # Key for the live input
+            help="Start typing to see suggestions",
+            on_change=update_search_term # Update session_state.search_term on every change
         )
         
         # Keyboard controls
@@ -722,14 +758,38 @@ def main():
         with col_kb2:
             if st.button("🔄 Clear Search", use_container_width=True):
                 st.session_state.search_term = ""
+                st.session_state.search_input_live = "" # Clear the input widget state as well
                 st.rerun()
         
         with col_kb3:
+            # Explicit search button - triggers search even if user didn't press enter
             if st.button("🔍 Search", type="primary", use_container_width=True):
-                if search_query:
-                    st.session_state.search_term = search_query
-                    st.rerun()
+                if st.session_state.search_term:
+                    # Force a search based on the current search term
+                    pass # The logic below will handle the search
         
+        
+        # --- Real-time Suggestions/Type Prediction Display ---
+        if st.session_state.search_term:
+            # Retrieve suggestions based on the current live input
+            live_suggestions, _, _ = search_dictionary(st.session_state.search_term, direction, enml_data, mlml_data)
+            
+            if live_suggestions:
+                st.markdown("### 💡 Autocomplete Suggestions")
+                st.markdown('<div class="suggestion-chip-container">', unsafe_allow_html=True)
+                
+                # Display only the top few suggestions
+                for i, suggestion in enumerate(live_suggestions[:8]):
+                    # Use a button styled as a chip to set the search term
+                    if st.button(suggestion, key=f"autocomplete_{i}", help=f"Set search word to {suggestion}",):
+                        st.session_state.search_term = suggestion
+                        st.session_state.search_input_live = suggestion # Update input widget value
+                        st.rerun()
+                
+                st.markdown('</div>', unsafe_allow_html=True)
+        # --- End Real-time Suggestions ---
+
+
         # Malayalam Keyboard
         if st.session_state.show_keyboard:
             st.markdown('<div class="malayalam-keyboard">', unsafe_allow_html=True)
@@ -742,9 +802,9 @@ def main():
                 for char in row:
                     if char.strip():
                         if cols[col_idx].button(char, key=f"kbd_{row_idx}_{char}", help=f"Add {char}"):
-                            # Direct modification of the text input value in session state
-                            st.session_state.search_input += char
-                            st.session_state.search_term = st.session_state.search_input
+                            # Direct modification of the text input value in session state for rerun
+                            st.session_state.search_input_live += char
+                            st.session_state.search_term = st.session_state.search_input_live
                             st.rerun()
                         col_idx += 1
             
@@ -754,14 +814,14 @@ def main():
             
             with col_ctrl1:
                 if st.button("⌫ Backspace", key="backspace", use_container_width=True):
-                    if st.session_state.search_input:
-                        st.session_state.search_input = st.session_state.search_input[:-1]
-                        st.session_state.search_term = st.session_state.search_input
+                    if st.session_state.search_input_live:
+                        st.session_state.search_input_live = st.session_state.search_input_live[:-1]
+                        st.session_state.search_term = st.session_state.search_input_live
                         st.rerun()
                 
             with col_ctrl2:
                 if st.button("🔄 Clear All", key="clear_all", use_container_width=True):
-                    st.session_state.search_input = ""
+                    st.session_state.search_input_live = ""
                     st.session_state.search_term = ""
                     st.rerun()
             
@@ -778,46 +838,32 @@ def main():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Update search term if keyboard was used
-        if st.session_state.search_term and st.session_state.search_term != search_query:
-            search_query = st.session_state.search_term
+        # Search is performed if search_term is not empty
+        final_search_query = st.session_state.search_term
         
-        # Perform Search
-        if search_query:
-            suggestions, results = search_dictionary(search_query, direction, enml_data, mlml_data)
+        if final_search_query:
+            # We already ran the dictionary search once for live suggestions, but run again 
+            # to get final results structure.
+            _, exact_results, related_results = search_dictionary(final_search_query, direction, enml_data, mlml_data)
             
-            # Add to history if we found results
-            if results:
-                add_to_history(search_query, direction)
+            # Combine all results, prioritizing exact matches
+            all_results = exact_results + related_results
             
-            # Display suggestions
-            if suggestions and not results:
-                st.markdown("### 💡 Suggestions")
-                
-                # Create suggestion buttons
-                num_cols = min(len(suggestions[:12]), 4)
-                suggestion_cols = st.columns(num_cols)
-                
-                for i, suggestion in enumerate(suggestions[:12]):
-                    with suggestion_cols[i % num_cols]:
-                        if st.button(suggestion, key=f"sugg_{i}", help=f"Search for {suggestion}"):
-                            st.session_state.search_term = suggestion
-                            st.rerun()
-                
-                st.info(f"🔍 No exact matches found for **'{search_query}'**. Try clicking on suggestions above.")
+            # Add to history if we found *any* results (exact or related)
+            if all_results:
+                add_to_history(final_search_query, direction)
             
-            # --- MODIFIED: CONSOLIDATED RESULTS DISPLAY with functional buttons ---
-            if results:
+            # --- Results Display ---
+            if all_results:
                 # Find the primary word (first occurrence)
-                primary_word = results[0][0] 
+                primary_word = all_results[0][0] 
                 
-                # FIX: Removed extra line break here
-                st.markdown(f"### 📖 Translation Results for **{primary_word}**") 
+                st.markdown(f"### 📖 Translation Results for **{final_search_query}**") 
                 
                 st.markdown('<div class="search-result-card-container malayalam-font">', unsafe_allow_html=True)
-                st.markdown(f'<h4 class="translation-header">{primary_word} ({direction})</h4>', unsafe_allow_html=True)
+                st.markdown(f'<h4 class="translation-header">{final_search_query} ({direction})</h4>', unsafe_allow_html=True)
 
-                st.success(f"🎯 Found **{len(results)}** match(es) for **'{search_query}'**")
+                st.success(f"🎯 Found **{len(exact_results)}** exact match(es) and **{len(related_results)}** related word(s)")
 
                 
                 # Helper function to check if word is favorite
@@ -827,45 +873,73 @@ def main():
                                fav['direction'] == direction 
                                for fav in st.session_state.favorites)
 
-                for i, (word, translation) in enumerate(results):
-                    is_favorite = is_word_favorite(word, translation, direction)
-                    
-                    # Use native Streamlit columns inside the HTML structure
-                    # FIX: Removed the outer div here to prevent the white gap 
-                    # st.markdown('<div class="translation-item">', unsafe_allow_html=True) 
-                    
-                    # Use a horizontal block to simulate the item row
-                    row_cols = st.columns([6, 1, 1], gap="small")
-                    
-                    # Create the main content and wrapper div
-                    with row_cols[0]:
-                         # FIX: Wrapped the content in the translation-item div and applied the text color fix
-                        st.markdown(f'''
-                        <div class="translation-item" style="display: flex; align-items: center; height: 30px;">
-                            <div class="translation-text">→ {translation}</div>
-                        </div>
-                        ''', unsafe_allow_html=True)
-                    
-                    with row_cols[1]:
-                        # Copy Button
-                        if st.button("📋", key=f"copy_{i}", help="Copy translation to clipboard", use_container_width=True):
-                            copy_to_clipboard_js(translation)
-                            
-                    with row_cols[2]:
-                        # Favorite/Unfavorite Button
-                        if is_favorite:
-                            if st.button("★", key=f"unfav_{i}", help="Remove from favorites", type="primary", use_container_width=True):
-                                remove_from_favorites(word, translation, direction)
+                
+                # Display Exact Matches
+                if exact_results:
+                    st.markdown('**Exact Matches:**')
+                    for i, (word, translation) in enumerate(exact_results):
+                        is_favorite = is_word_favorite(word, translation, direction)
+                        
+                        row_cols = st.columns([6, 1, 1], gap="small")
+                        
+                        with row_cols[0]:
+                             st.markdown(f'''
+                            <div class="translation-item" style="display: flex; align-items: center; height: 30px;">
+                                <div class="translation-text">→ <b>{word}</b>: {translation}</div>
+                            </div>
+                            ''', unsafe_allow_html=True)
+                        
+                        with row_cols[1]:
+                            if st.button("📋", key=f"copy_exact_{i}", help="Copy translation to clipboard", use_container_width=True):
+                                copy_to_clipboard_js(translation)
+                                
+                        with row_cols[2]:
+                            if is_favorite:
+                                if st.button("★", key=f"unfav_exact_{i}", help="Remove from favorites", type="primary", use_container_width=True):
+                                    remove_from_favorites(word, translation, direction)
+                                    st.rerun()
+                            else:
+                                if st.button("☆", key=f"fav_exact_{i}", help="Add to favorites", type="secondary", use_container_width=True):
+                                    add_to_favorites(word, translation, direction)
+                                    st.rerun()
+                
+                # Display Related Matches
+                if related_results:
+                    st.markdown('**Related Words (Suggested):**')
+                    for i, (word, translation) in enumerate(related_results):
+                        is_favorite = is_word_favorite(word, translation, direction)
+                        
+                        row_cols = st.columns([6, 1, 1], gap="small")
+                        
+                        with row_cols[0]:
+                            # Wrap the suggested word in a clickable text block for a new search
+                            if st.button(f"→ {word}: {translation}", key=f"related_search_{i}", help=f"Search for {word} instead"):
+                                st.session_state.search_term = word
+                                st.session_state.search_input_live = word
                                 st.rerun()
-                        else:
-                            if st.button("☆", key=f"fav_{i}", help="Add to favorites", type="secondary", use_container_width=True):
-                                add_to_favorites(word, translation, direction)
-                                st.rerun()
-                    
-                    # st.markdown('</div>', unsafe_allow_html=True) # Old closing tag removed
+                        
+                        # Note: Copy and Favorite buttons are generally applied to the *translation* of the *searched* word, 
+                        # but here we apply them to the related word's translation for consistency.
+                        with row_cols[1]:
+                            if st.button("📋", key=f"copy_related_{i}", help="Copy translation to clipboard", use_container_width=True):
+                                copy_to_clipboard_js(translation)
+                                
+                        with row_cols[2]:
+                            if is_favorite:
+                                if st.button("★", key=f"unfav_related_{i}", help="Remove from favorites", type="primary", use_container_width=True):
+                                    remove_from_favorites(word, translation, direction)
+                                    st.rerun()
+                            else:
+                                if st.button("☆", key=f"fav_related_{i}", help="Add to favorites", type="secondary", use_container_width=True):
+                                    add_to_favorites(word, translation, direction)
+                                    st.rerun()
+
 
                 st.markdown('</div>', unsafe_allow_html=True)
-                # --- END MODIFIED RESULTS DISPLAY ---
+                
+            elif final_search_query:
+                st.info(f"🔍 No exact or related words found for **'{final_search_query}'**.")
+
 
     # Statistics Tab (Right Column)
     with col_main2:
